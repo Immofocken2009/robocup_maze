@@ -26,6 +26,8 @@
   - 4er-Tastermodul (GND, K1–K4): K1 = GPIO 17, K2 = GPIO 27, K3 = GPIO 22, K4 = GPIO 23.
     Schaltet gegen GND, interne Pull-ups (gedrückt = LOW). Test: `python3 -m tools.test_buttons`
     **Belegung am 2026-11-03 geprüft** (K1–K4 nacheinander gedrückt, korrekt erkannt, kein Prellen).
+    **Funktion (Projektinhaber):** K1 = Start, K2 = Stopp, K3 = Lack of Progress, K4 = frei.
+    Achtung: Regel 4.2.8 verlangt EINEN Taster für Start UND LoP; Entscheidung dazu offen.
   - 3× Ultraschall: vorne, links, rechts. **Noch nicht verbunden**, Modell/Pins offen.
 - Kamera vorhanden, Nutzung noch offen
 - Sprache: Python
@@ -195,7 +197,8 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 ## Offene Fragen an den Projektinhaber
 
-- Lack of Progress: welcher der Taster K1–K4 ist der Start/LoP-Taster? (Regel 4.2.8: nur ein Taster dafür erlaubt)
+- Taster: K3 als eigener LoP-Taster widerspricht Regel 4.2.8 (ein Taster für Start und LoP).
+  Für den Wettkampf anpassen (z.B. K1 = Start und LoP) oder nur fürs Training so lassen?
 - Farbsensor: Modell bestätigen
 - Ultraschall: Modell und Pins (noch nicht verbunden)
 
