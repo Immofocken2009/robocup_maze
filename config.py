@@ -18,6 +18,12 @@ ROBOT_WIDTH_CM = 16.0     # MESSEN!
 BUTTON_PINS = {"K1": 17, "K2": 27, "K3": 22, "K4": 23}
 
 # --- Ultraschall -------------------------------------------------------------
+# 3× RCWL-9610A im GPIO-Modus (Trig/Echo wie HC-SR04), Versorgung 3,3 V (BCM-GPIO-Nummern)
+US_PINS = {
+    "front": {"trigger": 5, "echo": 6},
+    "left": {"trigger": 12, "echo": 13},
+    "right": {"trigger": 19, "echo": 26},
+}
 US_MAX_DISTANCE_CM = 150.0  # weiter weg = "nichts gemessen"
 WALL_THRESHOLD_CM = 20.0    # gemessener Abstand kleiner als das = Wand
 

@@ -32,7 +32,10 @@
     **Belegung am 2026-11-03 geprüft** (K1–K4 nacheinander gedrückt, korrekt erkannt, kein Prellen).
     **Funktion (vom Projektinhaber entschieden):** K1 = Start, K2 = Stopp, K3 = Lack of Progress, K4 = frei.
     (Hinweis auf Regel 4.2.8 – ein Taster für Start und LoP – wurde gegeben; Projektinhaber bleibt bei dieser Belegung.)
-  - 3× Ultraschall: vorne, links, rechts. **Noch nicht verbunden**, Modell/Pins offen.
+  - 3× Ultraschall **RCWL-9610A**: vorne, links, rechts. **GPIO-Modus** (Trig/Echo, wie HC-SR04),
+    Versorgung **3,3 V** (Echo dann 3,3 V, kein Spannungsteiler). Pins in `config.py` (`US_PINS`):
+    vorne Trig 5 / Echo 6, links Trig 12 / Echo 13, rechts Trig 19 / Echo 26.
+    Datenblatt: 2,8–5,5 V, blinder Bereich ~2 cm, Messzyklus ~70 ms (GPIO), I2C-Adresse fest 0x57 (daher kein I2C).
 - Kamera vorhanden, Nutzung noch offen
 - Sprache: Python
 
@@ -201,7 +204,6 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 ## Offene Fragen an den Projektinhaber
 
-- Ultraschall: Modell und Pins (noch nicht verbunden)
 
 ## Bekannte Stolpersteine
 
@@ -211,4 +213,4 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 - `lgpio` (Backend von `gpiozero` auf dem Pi 5) legt Dateien im aktuellen
   Arbeitsverzeichnis an. Programme müssen aus einem beschreibbaren Ordner gestartet werden.
-- HC-SR04-Ultraschall (falls verwendet): Echo liefert 5 V, Pi 5 verträgt nur 3,3 V → Spannungsteiler.
+- RCWL-9610A nur an 3,3 V betreiben: an 5 V wäre auch das Echo-Signal 5 V → würde einen Spannungsteiler brauchen.
