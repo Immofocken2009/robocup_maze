@@ -23,6 +23,8 @@
     (also bevor sie als „befahren“ zählt, Regel 5.4.4). Schwarz/Rot: erkennen, anhalten, zurück.
     Vermutlich I2C (z.B. TCS34725), noch nicht bestätigt. I2C ist auf dem Pi derzeit **deaktiviert**.
   - 1× **PmodGYRO** (Digilent, 3-Achsen-Gyroskop), über **I2C** angeschlossen.
+  - 4er-Tastermodul (GND, K1–K4): K1 = GPIO 17, K2 = GPIO 27, K3 = GPIO 22, K4 = GPIO 23.
+    Schaltet gegen GND, interne Pull-ups (gedrückt = LOW). Test: `python3 -m tools.test_buttons`
   - 3× Ultraschall: vorne, links, rechts. **Noch nicht verbunden**, Modell/Pins offen.
 - Kamera vorhanden, Nutzung noch offen
 - Sprache: Python
@@ -185,12 +187,14 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 ## Befehle (im Projektordner ausführen)
 
+- Taster testen: `python3 -m tools.test_buttons`
+
 - Simulation starten: `python3 -m web.server`, dann im Browser `http://<Pi-IP>:8000`
 - Tests: `python3 -m unittest discover -s tests`
 
 ## Offene Fragen an den Projektinhaber
 
-- Lack of Progress: Taster als Signal?
+- Lack of Progress: welcher der Taster K1–K4 ist der Start/LoP-Taster? (Regel 4.2.8: nur ein Taster dafür erlaubt)
 - Farbsensor: Modell bestätigen
 - Ultraschall: Modell und Pins (noch nicht verbunden)
 
