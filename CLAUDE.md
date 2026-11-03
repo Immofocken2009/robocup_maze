@@ -161,8 +161,9 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   - **K2** (Stopp): Lauf abbrechen, Motoren aus, zurück in den Zustand wie nach dem Booten
     (Karte leer, wartet auf K1). Das Programm selbst läuft weiter.
   - **K3** (Lack of Progress): Roboter hält an und wartet. Nach dem Umsetzen nochmal **K3** → weiter.
-    Er nimmt an, dass er auf dem letzten besuchten Checkpoint steht (ohne Checkpoint: Start), mit der
-    Blickrichtung, mit der er dort zuletzt angekommen ist. Die Karte bleibt.
+    Er nimmt an, dass er auf dem letzten besuchten Checkpoint steht, mit der Blickrichtung, mit der er
+    dort zuletzt angekommen ist. Ohne Checkpoint: am Start, Blickrichtung wie zu Beginn des Laufs.
+    Die Karte bleibt.
 - **Zwei Programme**, beide per systemd beim Booten gestartet:
   `robocup-web.service` (Webseite, `python3 -m web.server`) und `robocup-robot.service` (`main.py`).
   `main.py` verbindet sich per **WebSocket** mit `ws://localhost:8000/robot` und schickt jede Änderung.
@@ -248,8 +249,17 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 - Taster testen: `python3 -m tools.test_buttons`
 - Ultraschall testen: `python3 -m tools.test_ultrasonic`
+- Farbsensor kalibrieren: `python3 -m tools.calibrate_color` (nur Live-Anzeige: `--test`) → `data/colors.json`
+- Motoren einmessen (Roboter fährt!): `python3 -m tools.test_motors richtung|strecke|drehen`
+  → Werte für `MOTOR_DIRECTION`, `MOTOR_DEG_PER_CM`, `MOTOR_DEG_PER_90` in `config.py`
 
-- Simulation starten: `python3 -m web.server`, dann im Browser `http://<Pi-IP>:8000`
+- Webseite von Hand starten: `python3 -m web.server`, dann im Browser `http://<Pi-IP>:8000`
+- Roboterprogramm von Hand starten: `python3 main.py` (wartet auf K1)
+- Autostart einrichten (einmalig, braucht sudo):
+  `sudo systemctl enable --now /home/immo/robocup/robocup-web.service /home/immo/robocup/robocup-robot.service`
+- Dienste: `systemctl status robocup-robot`, Ausgaben `journalctl -u robocup-robot -f`,
+  nach Codeänderungen `sudo systemctl restart robocup-robot robocup-web`
+  (Läuft der Dienst, belegt er GPIO/BrickPi: vor `tools.*` oder `python3 main.py` erst `sudo systemctl stop robocup-robot`.)
 - Tests: `python3 -m unittest discover -s tests`
 
 ## Offene Fragen an den Projektinhaber

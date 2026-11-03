@@ -194,7 +194,7 @@ class RealRobot(RobotInterface):
                     self.motors.stop()
                     self.floor = tile
                     self.set_action(f"{FLOOR_NAMES[tile]} erkannt", "fährt zurück")
-                    self._drive_cm(-self._travelled(l0, r0))
+                    self.drive_cm(-self._travelled(l0, r0))
                     return MoveResult(MoveStatus.AVOIDED, tile)
 
             # Ultraschall: abwechselnd vorne und seitlich
@@ -244,12 +244,12 @@ class RealRobot(RobotInterface):
             if front is not None and front < config.WALL_THRESHOLD_CM:
                 self.set_action("richtet sich aus", "an der Wand vorne")
                 if self._push(1):
-                    self._drive_cm(-config.ALIGN_BACK_CM)
+                    self.drive_cm(-config.ALIGN_BACK_CM)
                 return
         if back_wall:
             self.set_action("richtet sich aus", "an der Wand hinten")
             if self._push(-1):
-                self._drive_cm(config.ALIGN_BACK_CM)
+                self.drive_cm(config.ALIGN_BACK_CM)
 
     def wait(self, seconds: float):
         self._begin("wartet")
@@ -318,7 +318,7 @@ class RealRobot(RobotInterface):
             time.sleep(LOOP_S)
         self.motors.stop()
 
-    def _drive_cm(self, cm: float):
+    def drive_cm(self, cm: float):
         """Gerade nach Encoder fahren (negativ = rückwärts), beide Ketten im Gleichlauf."""
         direction = 1 if cm >= 0 else -1
         l0, r0 = self.motors.positions()
@@ -351,7 +351,7 @@ class RealRobot(RobotInterface):
                 moved = direction * self._travelled(l0, r0)
                 if moved > config.ALIGN_MAX_CM:
                     self.motors.stop()
-                    self._drive_cm(-direction * moved)
+                    self.drive_cm(-direction * moved)
                     return False
                 now = time.monotonic()
                 if now - last_t >= 0.1:
