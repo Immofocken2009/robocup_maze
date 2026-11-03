@@ -43,6 +43,7 @@ robocup/
 │   └── robot_interface.py #   Schnittstelle Explorer <-> Roboter (Simulation und echter Roboter)
 ├── simulation/            # Erkundung ohne echten Roboter testen
 │   ├── sim_robot.py
+│   ├── maze_generator.py  #   Zufallslabyrinthe nach Regelwerk 2026
 │   └── mazes/             #   Testlabyrinthe als JSON
 ├── web/                   # Webseite (flach)
 │   ├── server.py          #   aiohttp: liefert Seite + WebSocket
@@ -100,7 +101,7 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - Funktionen der Seite: Start / Pause / Schritt, Geschwindigkeit, Labyrinth auswählen,
   Karte vs. Wirklichkeit (Unbekanntes ausgegraut, Grenzkacheln und geplanter Weg markiert),
   Sensorwerte.
-- Bodentypen: normal, schwarz, blau, silber. Keine Rampen, keine Opfer.
+- Bodentypen: normal, schwarz, blau, silber, rot (Eingang Gefahrenzone). Keine Rampen, keine Opfer.
 - Sensorwerte zunächst **exakt** (Rauschen kommt später).
 - **8-Minuten-Zeitlimit mit Sim-Zeit:** Jede Aktion kostet eine geschätzte Zeit (Werte in `config.py`),
   der Roboter fährt rechtzeitig heim.
@@ -110,6 +111,46 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - Die Simulation arbeitet kachelweise (eine Aktion = eine Kachel bzw. eine 90°-Drehung).
   Simulierte Ultraschallwerte = Abstand von der Sensorposition (Robotermaße in `config.py`) bis zur nächsten Wand.
 - Alle Browser sehen dieselbe Simulation (gemeinsamer Zustand auf dem Server).
+
+### Zufallslabyrinthe (`simulation/maze_generator.py`)
+
+- Erzeugt nach dem **Regelwerk 2026** (eine Ebene): Gänge mit Sackgassen und Schleifen,
+  Foyers (offene Räume), freistehende Wände (Inseln/Floating Tiles), Gefahrenzone
+  (komplett ummauert, rote Eingangskachel, blockiert nichts, Start nicht darin), Start beliebig.
+- **Größe frei einstellbar** auf der Webseite; offizielle 2026-Feldgrößen als Vorschlag
+  (8×7, 8×8, 9×8, 7×8, 4×12).
+- **Anzahl** schwarz/blau/silber/Gefahrenzonen auf der Webseite einstellbar.
+  Schwarze Kacheln werden nur so gesetzt, dass alle anderen Kacheln erreichbar bleiben („lösbar“).
+- **Nicht** erzeugt (spätere Phase): Bodenwellen, Hindernisse, Treppen, Brücken, Rampen, Opfer.
+- **Seed** für jedes Labyrinth (wiederholbar) + **Speichern-Knopf** (JSON in `simulation/mazes/`).
+
+### Lauf-Regeln in der Simulation
+
+- **Gefahrenzone:** Verhalten **vor jedem Lauf auf der Webseite wählbar**: zuletzt erkunden / meiden / normal.
+- **Exit:** Am Start **10 s blinken** (Regel 5.6.12). Zählt zur Sim-Zeit und wird beim Heimweg eingeplant.
+- **Blau:** Bereits besuchte blaue Kacheln werden bei der Wegplanung **stark gemieden** (2026: −10 Punkte je Wiederholung).
+- **Kalibrieren:** **40 s** der 8 Minuten gelten als verbraucht (Uhr startet bei 0:40).
+- **Punkte nach Regelwerk 2026** werden live angezeigt.
+
+### Regelwerk 2026: relevante Fakten
+
+Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploads/2026/02/RCJRescueMaze2026-final.pdf)
+(Stand 2026-03-29), Wettkampffelder: [rescue.rcj.cloud 2026](https://rescue.rcj.cloud/events/2026/RoboCup2026/maze/practice)
+
+- Kachel 30 × 30 cm, Wände ≥ 15 cm hoch, 30 cm lang, auf Kachelkanten; Durchgang 28 cm (3.1, 3.3)
+- Schwarz = Loch; „besucht“ (mehr als halber Roboter drauf) = Lack of Progress (3.2.3, 5.4.4, 5.5)
+- Blau: 5 s am Stück stehen, bevor die nächste Kachel besucht wird; sonst LoP (3.2.5, 5.5)
+- Silber = Checkpoint, 10 Punkte (3.2.4, 5.6.11)
+- Rot = Eingang Gefahrenzone; ummauert, blockiert nichts, Start nicht darin (3.5)
+- Start beliebig im Feld (3.3.5); 8 Minuten pro Spiel inkl. Kalibrieren (5.3.1)
+- Punkte (ohne Opfer/Rampen/Treppen/Bodenwellen):
+  - Checkpoint 10 je Kachel
+  - Blaue Kachel: 30 beim ersten Besuch, −10 je weiterem Besuch derselben Kachel, min. 0 (5.6.6)
+  - Zuverlässigkeitsbonus = SVI×10 + SRD×10 + SBV×10 − LoP×15, nicht negativ (5.6.7)
+  - Exit-Bonus = SVI×10 + SBV×10 + SSN×5 + SRN×5, wenn am Start 10 s geblinkt (5.6.12)
+  - Auslegung: SBV = Anzahl blauer Kacheln, die genau einmal besucht wurden
+- Offizielle Felder 2026: 4×12 bis 9×8, ca. 44 Kacheln auf 2–3 Ebenen,
+  1–4 Checkpoints, 1–3 schwarz, 2–6 blau, 1–2 rot
 
 ### JSON-Format der Testlabyrinthe
 
@@ -128,7 +169,8 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - `x` nach rechts (Osten), `y` nach oben (Norden), (0, 0) = unten links. Wie in der Roboterkarte.
 - `walls`: Buchstaben N/E/S/W. Eine Wand gilt, wenn **eine** der beiden Nachbarkacheln sie einträgt.
 - Ränder des Labyrinths sind immer Wand.
-- `floor`: `normal`, `black`, `blue`, `silver`. `start_dir` (optional, Standard `N`): Startblickrichtung.
+- `floor`: `normal`, `black`, `blue`, `silver`, `red`. `start_dir` (optional, Standard `N`): Startblickrichtung.
+- Optional bei Zufallslabyrinthen: `seed` und `params` (Einstellungen des Generators).
 
 ## Befehle (im Projektordner ausführen)
 
