@@ -130,6 +130,7 @@ class SimController:
         self.stopped = False
         self.speed = speed      # 1.0 = Echtzeit, 10.0 = zehnmal so schnell
         self._steps = 0
+        self.stepping = False   # ein Schritt läuft gerade (bis zur nächsten Aktion)
 
     def start(self):
         with self._cond:
@@ -139,6 +140,7 @@ class SimController:
     def pause(self):
         with self._cond:
             self.running = False
+            self.stepping = False
             self._cond.notify_all()
 
     def step(self):
@@ -159,11 +161,23 @@ class SimController:
     def wait_turn(self):
         """Vor jeder Aktion: warten, bis sie ausgeführt werden darf."""
         with self._cond:
+            self.stepping = False
             self._cond.wait_for(lambda: self.stopped or self.running or self._steps > 0)
             if self.stopped:
                 raise SimStopped
             if not self.running:
                 self._steps -= 1
+                self.stepping = True
+
+    def wait_running(self):
+        """Während einer Aktion (Fahrphysik): bei Pause anhalten. Ein Schritt läuft bis zur nächsten Aktion."""
+        with self._cond:
+            self._cond.wait_for(lambda: self.stopped or self.running or self.stepping or self._steps > 0)
+            if self.stopped:
+                raise SimStopped
+            if not self.running and not self.stepping:
+                self._steps -= 1
+                self.stepping = True
 
     def sleep(self, sim_seconds: float):
         """Nach jeder Aktion: so lange warten, wie sie bei der eingestellten Geschwindigkeit dauert."""
@@ -287,23 +301,24 @@ class SimRobot(RobotInterface):
     # --- Punkte nach Regelwerk 2026 ---------------------------------------------
 
     def score(self) -> dict[str, int]:
-        tiles = self.world.tiles
-        checkpoints = sum(1 for p in self.visits if tiles[p] is TileType.SILVER)
-        blue_visits = [n for p, n in self.visits.items() if tiles[p] is TileType.BLUE]
-        blue = sum(max(0, config.POINTS_BLUE - config.POINTS_BLUE_REVISIT * (n - 1))
-                   for n in blue_visits)
-        sbv = sum(1 for n in blue_visits if n == 1)
-        reliability = max(0, sbv * config.BONUS_PER_SBV - self.lop * config.PENALTY_PER_LOP)
-        exit_bonus = sbv * config.BONUS_PER_SBV if self.exit_done else 0
-        result = {
-            "checkpoints": checkpoints * config.POINTS_CHECKPOINT,
-            "blue": blue,
-            "reliability": reliability,
-            "exit": exit_bonus,
-        }
-        result["total"] = sum(result.values())
-        result["lop"] = self.lop
-        return result
+        return score_2026(self.world.tiles, self.visits, self.lop, self.exit_done)
+
+
+def score_2026(tiles: dict[Pos, TileType], visits: Counter, lop: int, exit_done: bool) -> dict[str, int]:
+    """Punkte nach Regelwerk 2026 (ohne Opfer, Rampen, Treppen, Bodenwellen)."""
+    checkpoints = sum(1 for p in visits if tiles.get(p) is TileType.SILVER)
+    blue_visits = [n for p, n in visits.items() if tiles.get(p) is TileType.BLUE]
+    blue = sum(max(0, config.POINTS_BLUE - config.POINTS_BLUE_REVISIT * (n - 1)) for n in blue_visits)
+    sbv = sum(1 for n in blue_visits if n == 1)
+    result = {
+        "checkpoints": checkpoints * config.POINTS_CHECKPOINT,
+        "blue": blue,
+        "reliability": max(0, sbv * config.BONUS_PER_SBV - lop * config.PENALTY_PER_LOP),
+        "exit": sbv * config.BONUS_PER_SBV if exit_done else 0,
+    }
+    result["total"] = sum(result.values())
+    result["lop"] = lop
+    return result
 
 
 _FLOOR_NAMES = {TileType.NORMAL: "normal", TileType.BLACK: "schwarz", TileType.BLUE: "blau",
