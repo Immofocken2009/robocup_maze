@@ -142,9 +142,23 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 ### Echter Roboter (freigegeben 2026-11-03)
 
 - **Bibliotheken:** `brickpi3` (Motoren), `smbus2` (Farbsensor), `lgpio` (Ultraschall), `gpiozero` (Taster).
-- **Geradeaus:** PD-Regler. Zwei Seitenwände: Mitte halten. Eine Wand: Sollabstand zu ihr halten.
-  Keine Wand: beide Ketten über die Encoder gleich halten. Der D-Anteil nutzt die Änderung des
-  Seitenabstands pro gefahrenem cm (erkennt Schrägstand).
+- **Geradeaus:** PD-Regler (geändert 2026-11-03, Vorgabe Projektinhaber):
+  - **Grundregel: links und rechts gleich** (Abweichung = (links − rechts) / 2). Keine feste
+    Wandgrenze (z.B. 20 cm) beim Lenken. Die 20-cm-Grenze gilt nur für die Karte (Messung in Kachelmitte).
+  - **Gangbreite B = links + rechts** wird mitgeführt; sie ändert sich beim seitlichen Wandern nicht,
+    nur wenn sich eine Wand ändert.
+  - **Breite Räume** (B deutlich größer als ein Gang einer Kachel): Abstand zur **näheren** Wand
+    = halbe zuletzt gemessene Gangbreite (bei weiter entfernter Wand plus ganze Kacheln), damit er
+    mittig auf seiner Kachel bleibt.
+  - **Gegen Ausscheren, wenn eine Wand wegbricht:**
+    1. Breiten-Wächter: weicht links + rechts um mehr als ca. 2 cm von B ab, wird die Seite, die sich
+       gerade geändert hat, ignoriert (seitliches Wandern löst das nie aus).
+    2. Eine Seite fehlt: Abstand zur verbliebenen Wand = B / 2 (fährt in derselben Spur weiter).
+    3. Beide fehlen: Ketten über die Encoder gleich halten.
+    4. Zurückkehrende Wand zählt erst nach 2 zusammenpassenden Messungen, dann neue Breite B.
+    5. Lenkänderung begrenzt (pro gefahrenem cm), damit Fehlmessungen nie einen Ruck geben.
+    6. D-Anteil beginnt nach jedem Wechsel neu.
+  - Der D-Anteil nutzt die Änderung der Abweichung pro gefahrenem cm (erkennt Schrägstand).
 - **Kachelende nach Abstand:** Ist vorne eine Wand in Reichweite (auch mehrere Kacheln entfernt),
   wird angehalten, wenn der Abstand vorne zur Kachelmitte passt (zwischen zwei Messungen mit Encoder
   weitergerechnet). Ohne Wand in Reichweite: nach Encoder-Strecke. Encoder begrenzt Ausreißer.
