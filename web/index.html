@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Maze-Simulation</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>RoboCup Maze <span>Simulation</span></h1>
+    <span id="conn" class="conn">verbinde …</span>
+  </header>
+
+  <main>
+    <section class="board">
+      <canvas id="maze" aria-label="Labyrinth mit Roboter"></canvas>
+    </section>
+
+    <aside>
+      <div class="panel">
+        <label class="field">Labyrinth
+          <select id="maze-select"></select>
+        </label>
+        <div class="buttons">
+          <button id="btn-start" class="primary">Start</button>
+          <button id="btn-pause">Pause</button>
+          <button id="btn-step">Schritt</button>
+          <button id="btn-reset">Neu</button>
+        </div>
+        <label class="field">Geschwindigkeit <output id="speed-label">5×</output>
+          <input type="range" id="speed" min="0" max="100" value="50">
+        </label>
+        <label class="check"><input type="checkbox" id="show-truth" checked> Wirklichkeit einblenden</label>
+      </div>
+
+      <div class="panel">
+        <h2>Status</h2>
+        <dl class="stats">
+          <dt>Modus</dt><dd id="st-mode">–</dd>
+          <dt>Zeit</dt><dd><span id="st-time">0:00</span> / <span id="st-limit">8:00</span></dd>
+          <dt>Besucht</dt><dd id="st-visited">–</dd>
+          <dt>Aktionen</dt><dd id="st-actions">–</dd>
+          <dt>Letzte Aktion</dt><dd id="st-action">–</dd>
+          <dt>Checkpoint</dt><dd id="st-checkpoint">–</dd>
+        </dl>
+        <div class="timebar"><div id="timebar-fill"></div></div>
+      </div>
+
+      <div class="panel">
+        <h2>Sensoren</h2>
+        <dl class="sensors">
+          <dt>Vorne</dt><dd><span id="se-front">–</span><b id="sw-front" class="wall">Wand</b></dd>
+          <dt>Links</dt><dd><span id="se-left">–</span><b id="sw-left" class="wall">Wand</b></dd>
+          <dt>Rechts</dt><dd><span id="se-right">–</span><b id="sw-right" class="wall">Wand</b></dd>
+          <dt>Farbe</dt><dd><i id="se-swatch" class="swatch"></i><span id="se-color">–</span></dd>
+          <dt>Gyro</dt><dd id="se-gyro">–</dd>
+        </dl>
+      </div>
+
+      <div class="panel">
+        <h2>Legende</h2>
+        <ul class="legend">
+          <li><i class="swatch known"></i>besucht</li>
+          <li><i class="swatch unknown"></i>unbekannt</li>
+          <li><i class="swatch frontier"></i>Grenzkachel</li>
+          <li><i class="swatch path"></i>geplanter Weg</li>
+          <li><i class="swatch black"></i>schwarz</li>
+          <li><i class="swatch blue"></i>blau</li>
+          <li><i class="swatch silver"></i>silber</li>
+          <li><i class="line known-wall"></i>Wand (bekannt)</li>
+          <li><i class="line truth-wall"></i>Wand (Wirklichkeit)</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>Ereignisse</h2>
+        <ol id="events" class="events"></ol>
+      </div>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
