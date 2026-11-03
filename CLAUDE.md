@@ -176,6 +176,12 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - **Kachelende nach Abstand:** Ist vorne eine Wand in Reichweite (auch mehrere Kacheln entfernt),
   wird angehalten, wenn der Abstand vorne zur Kachelmitte passt (zwischen zwei Messungen mit Encoder
   weitergerechnet). Ohne Wand in Reichweite: nach Encoder-Strecke. Encoder begrenzt Ausreißer.
+  Der Haltepunkt wird **bei jeder Messung vorne neu** ins Kachelraster gelegt (die Kachelmitte, die am
+  nächsten an 30 cm liegt). Grund (aus der Fahrphysik-Simulation): der Sensor hört oft erst ein Wandende
+  schräg voraus und später die eigentliche Wand; ein einmal am Start festgelegtes Ziel passte dann nicht.
+- **Ketten blockiert:** Drehen sich die Ketten trotz Fahrbefehl `STALL_S` lang nicht (z.B. schräg an einer
+  Wand), bricht die Fahrt ab: zurück und als Wand melden (Explorer plant neu). Drehen und Zurückfahren
+  brechen ebenso ab, statt bis zum Zeitende zu drücken.
 - **Drehen:** über die Encoder, danach **an den Wänden ausrichten**:
   Wand vorne → langsam dagegen fahren, bis die Ketten stehen, dann zurück auf Kachelmitte.
   Sonst Wand hinten (laut Karte) → rückwärts dagegen, dann vor auf Kachelmitte.

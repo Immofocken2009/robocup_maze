@@ -2,7 +2,8 @@
 
 Startet beim Booten (robocup-web.service), von Hand im Projektordner:  python3 -m web.server
 Liefert die Seite aus und schickt jeden Schritt live per WebSocket (/ws) an die Browser.
-Alle verbundenen Browser sehen dieselbe Simulation.
+Alle verbundenen Browser sehen dieselbe Simulation. Sie fährt mit Fahrphysik und dem echten
+Fahrcode (simulation/sim_hardware.py, hardware/robot.py).
 Das Roboterprogramm (main.py) verbindet sich über /robot (nur vom Pi selbst) und schickt seinen
 Zustand, der unverändert an alle Browser weitergeht.
 """
@@ -12,16 +13,20 @@ import json
 import logging
 import socket
 import threading
+import time
 from pathlib import Path
 
 from aiohttp import WSCloseCode, WSMsgType, web
 
 import config
+from hardware.robot import TimeUp
 from navigation.explorer import Explorer
 from navigation.maze_map import Dir
 from simulation.maze_generator import generate
-from simulation.sim_robot import (MAZES_DIR, SimController, SimRobot, SimStopped, SimWorld,
-                                  TimeUp, list_mazes)
+from simulation.sim_hardware import SimDrivingRobot, SimHardware
+from simulation.sim_robot import MAZES_DIR, SimController, SimStopped, SimWorld, list_mazes, score_2026
+
+PUBLISH_S = 0.05    # Fahrphysik: höchstens so oft (Echtzeit) den Zustand an die Browser schicken
 
 WEB_DIR = Path(__file__).resolve().parent
 log = logging.getLogger("web")
@@ -31,8 +36,11 @@ class SimSession:
     def __init__(self, loop: asyncio.AbstractEventLoop):
         self.loop = loop
         self.queues: set[asyncio.Queue] = set()   # eine Warteschlange pro Browser
-        self.speed = 5.0
+        self.speed = 2.0
         self.red_mode = config.RED_MODE
+        self.noise = False          # Messrauschen am Ultraschall
+        self.slip = False           # Kettenschlupf
+        self._publish_t = 0.0
         self.thread: threading.Thread | None = None
         self.controller: SimController | None = None
         self.generation = 0      # verhindert, dass ein alter Sim-Thread noch Daten schickt
@@ -67,6 +75,10 @@ class SimSession:
         elif cmd == "speed":
             self.speed = min(100.0, max(0.1, float(msg.get("value", 1))))
             self.controller.set_speed(self.speed)
+        elif cmd in ("noise", "slip"):
+            setattr(self, cmd, bool(msg.get("value")))
+            self.hardware.set_noise(self.noise)
+            self.hardware.set_slip(self.slip)
         self.send_all(self.control_msg())
 
     def generate(self, params: dict):
@@ -110,10 +122,19 @@ class SimSession:
         gen = self.generation
         self.finished = False
         self.controller = SimController(self.speed)
-        self.robot = SimRobot(self.world, self.controller, on_action=lambda: self._publish(gen))
+        self.hardware = SimHardware(self.world, self.controller, noise=self.noise, slip=self.slip,
+                                    on_tick=lambda: self._publish(gen, force=False))
+        self.robot = SimDrivingRobot(self.hardware, self.controller,
+                                     on_change=lambda: self._publish(gen, force=False))
         self.explorer = Explorer(self.robot, red_mode=self.red_mode,
                                  on_update=lambda: self._publish(gen))
+        self.hardware.body.on_event = self._referee_event
+        self.robot.start_clock()
         self._publish(gen)
+
+    def _referee_event(self, text: str):
+        t = int(self.robot.time())
+        self.explorer.events.append(f"{t // 60}:{t % 60:02d}  Schiedsrichter: {text}")
 
     def _ensure_thread(self):
         if self.thread is None:
@@ -145,9 +166,13 @@ class SimSession:
             self._publish(gen)
             self.loop.call_soon_threadsafe(lambda: self.send_all(self.control_msg()))
 
-    def _publish(self, gen: int):
+    def _publish(self, gen: int, force: bool = True):
         if gen != self.generation:
             return
+        now = time.monotonic()
+        if not force and now - self._publish_t < PUBLISH_S:
+            return
+        self._publish_t = now
         state = self.state_msg()
         self.loop.call_soon_threadsafe(self._store_and_send, state)
 
@@ -177,10 +202,11 @@ class SimSession:
         c = self.controller
         return {"type": "control", "mazes": list_mazes(), "current": self.name,
                 "running": c.running and not self.finished, "started": self.thread is not None,
-                "finished": self.finished, "speed": self.speed, "red_mode": self.red_mode}
+                "finished": self.finished, "speed": self.speed, "red_mode": self.red_mode,
+                "noise": self.noise, "slip": self.slip}
 
     def state_msg(self) -> dict:
-        w, r, e = self.world, self.robot, self.explorer
+        w, r, e, hw = self.world, self.robot, self.explorer, self.hardware
         to_world = w.to_world
         tiles = [{"x": to_world(p)[0], "y": to_world(p)[1], "floor": kind.value,
                   "visited": p in e.maze.visited}
@@ -189,25 +215,31 @@ class SimSession:
                   "wall": present}
                  for p, d, present in e.maze.walls()]
         checkpoint = list(to_world(e.last_checkpoint)) if e.last_checkpoint else None
+        body = hw.body
         return {
             "type": "state",
-            "robot": {"x": r.pos[0], "y": r.pos[1], "dir": int(r.dir)},
+            "robot": hw.pose(),
+            "robot_size": {"len": config.ROBOT_LENGTH_CM / config.TILE_SIZE_CM,
+                           "wid": config.ROBOT_WIDTH_CM / config.TILE_SIZE_CM},
+            "beams": hw.beams(),
             "mode": e.mode,
-            "time": r.sim_time,
-            "time_limit": r.time_limit_s,
+            "action": r.action,
+            "detail": r.detail,
+            "time": r.time(),
+            "time_limit": config.TIME_LIMIT_S,
             "known_tiles": tiles,
             "known_walls": walls,
             "frontier": [list(to_world(p)) for p in e.maze.frontier()],
             "planned": [list(to_world(p)) for p in e.planned],
             "checkpoint": checkpoint,
-            "sensors": {**r.distances(), "walls": r.read_walls(),
-                        "color": r.read_floor().value, "gyro": r.gyro_deg % 360},
-            "last_action": r.last_action,
-            "stats": {"visited": len(e.maze.visited), "reachable": self.reachable,
-                      "actions": r.actions},
-            "score": r.score(),
+            "sensors": {**hw.ultrasonic.last, "color": hw.color.read_tile().value,
+                        "encoders": [round(v) for v in body.encoder],
+                        "heading_error": round(((body.heading - 90 * int(w.to_world_dir(e.heading))) + 180) % 360 - 180, 1)},
+            "wall_threshold": config.WALL_THRESHOLD_CM,
+            "stats": {"visited": len(e.maze.visited), "reachable": self.reachable, "actions": r.actions},
+            "score": score_2026(w.tiles, body.visits, body.lop, exit_done=False),
             "events": list(e.events)[-30:],
-            "anim_ms": min(1500, r.last_duration / self.speed * 1000),
+            "anim_ms": 60,
         }
 
     def send_all(self, msg: dict):

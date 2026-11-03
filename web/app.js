@@ -109,6 +109,25 @@ class MapCanvas {
 
   px(x) { return PAD + (x - this.bounds.x0) * this.T; }
   py(y) { return PAD + (this.bounds.y0 + this.bounds.h - 1 - y) * this.T; }
+  // stufenlose Koordinaten in Kacheln, (0, 0) = Ecke unten links
+  cx(x) { return PAD + (x - this.bounds.x0) * this.T; }
+  cy(y) { return PAD + (this.bounds.y0 + this.bounds.h - y) * this.T; }
+
+  beams(list) {
+    const c = this.ctx;
+    c.strokeStyle = colors.muted;
+    c.lineWidth = 1;
+    c.setLineDash([3, 3]);
+    for (const b of list) {
+      c.globalAlpha = b.echo ? 0.8 : 0.3;
+      c.beginPath();
+      c.moveTo(this.cx(b.x0), this.cy(b.y0));
+      c.lineTo(this.cx(b.x1), this.cy(b.y1));
+      c.stroke();
+    }
+    c.setLineDash([]);
+    c.globalAlpha = 1;
+  }
 
   tile(x, y, color, alpha = 1) {
     const c = this.ctx;
@@ -187,14 +206,15 @@ class MapCanvas {
     c.fill();
   }
 
-  robot(pose) {
+  robot(pose, size = null) {
     const c = this.ctx, T = this.T, r = T * 0.3;
+    const hl = size ? size.len * T / 2 : r, hw = size ? size.wid * T / 2 : r;   // halbe Länge / Breite
     c.save();
     c.translate(this.px(pose.x) + T / 2, this.py(pose.y) + T / 2);
     c.rotate(pose.angle * Math.PI / 2);
     c.fillStyle = colors.robot;
     c.beginPath();
-    c.roundRect(-r, -r, 2 * r, 2 * r, r * 0.25);
+    c.roundRect(-hw, -hl, 2 * hw, 2 * hl, r * 0.25);
     c.fill();
     c.fillStyle = colors.robotMark;
     c.beginPath();
@@ -438,6 +458,9 @@ const sim = {
       send({ cmd: "speed", value: speed });
     });
     $("show-truth").addEventListener("change", () => this.map.request());
+    for (const id of ["noise", "slip"]) {
+      $(id).addEventListener("change", (e) => send({ cmd: id, value: e.target.checked }));
+    }
   },
 
   setWorld(msg) {
@@ -450,8 +473,7 @@ const sim = {
   },
 
   setState(msg) {
-    const r = msg.robot;
-    this.anim.set({ x: r.x, y: r.y, angle: r.dir }, msg.anim_ms);
+    this.anim.set(msg.robot, msg.anim_ms);
     this.state = msg;
     this.updatePanels();
     this.map.request();
@@ -490,7 +512,8 @@ const sim = {
 
     const pose = this.anim.pose(now);
     if (state) m.path(pose, state.planned);
-    if (pose) m.robot(pose);
+    if (state) m.beams(state.beams);
+    if (pose) m.robot(pose, state ? state.robot_size : null);
     if (this.anim.progress(now) < 1) m.request();
   },
 
@@ -500,7 +523,8 @@ const sim = {
     setClock("st-", s.time, s.time_limit);
     $("st-visited").textContent = `${s.stats.visited} von ${s.stats.reachable} Kacheln`;
     $("st-actions").textContent = s.stats.actions;
-    $("st-action").textContent = s.last_action;
+    $("st-now").textContent = capitalize(s.action);
+    $("st-detail").textContent = s.detail || "";
     $("st-checkpoint").textContent = s.checkpoint ? `${s.checkpoint[0]}, ${s.checkpoint[1]}` : "–";
 
     for (const part of ["checkpoints", "blue", "reliability", "exit", "total"]) {
@@ -510,12 +534,13 @@ const sim = {
 
     for (const side of ["front", "left", "right"]) {
       const v = s.sensors[side];
-      $(`se-${side}`).textContent = v === null ? "außer Reichweite" : `${v.toFixed(1)} cm`;
-      $(`sw-${side}`).classList.toggle("on", s.sensors.walls[side]);
+      $(`se-${side}`).textContent = fmtCm(v);
+      $(`sw-${side}`).classList.toggle("on", v !== null && v < s.wall_threshold);
     }
     setSwatch($("se-swatch"), s.sensors.color);
     $("se-color").textContent = FLOOR_NAMES[s.sensors.color];
-    $("se-gyro").textContent = `${s.sensors.gyro}°`;
+    $("se-enc").textContent = `${s.sensors.encoders[0]}°  /  ${s.sensors.encoders[1]}°`;
+    $("se-skew").textContent = `${s.sensors.heading_error.toFixed(1)}°`;
     setList($("events"), s.events.slice().reverse());
   },
 
@@ -570,6 +595,9 @@ const sim = {
     red.value = control.red_mode;
     red.disabled = control.started;
     red.title = control.started ? "Erst nach „Neu starten“ änderbar" : "";
+
+    $("noise").checked = control.noise;
+    $("slip").checked = control.slip;
 
     const slider = $("speed");
     if (document.activeElement !== slider) slider.value = speedToSlider(control.speed);

@@ -193,6 +193,7 @@ canvas { display: block; max-width: 100%; }
 .ln.path { border-top: 3px solid var(--path); }
 .ln.wall { border-top: 4px solid var(--wall); }
 .ln.truth { border-top: 1px solid var(--truth); }
+.ln.beam { border-top: 1px dashed var(--muted); }
 
 /* --- Seitenspalte ---------------------------------------------------------- */
 

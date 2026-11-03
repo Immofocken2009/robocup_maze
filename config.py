@@ -66,6 +66,8 @@ TURN_SLOW_DPS = 100
 TURN_SLOW_DEG = 60.0        # so viele Encodergrad vor dem Ziel langsam drehen
 
 FRONT_TRUST_CM = 100.0      # Wand vorne weiter weg als das: nur nach Encoder fahren
+STALL_S = 1.0               # Ketten drehen sich trotz Fahrbefehl so lange nicht: blockiert
+STALL_DEG = 10.0            # weniger Encoder-Bewegung (beide Ketten zusammen) gilt als Stillstand
 FORWARD_TOLERANCE_CM = 8.0  # der Abstand vorne darf die Kachelstrecke um höchstens so viel ändern
 
 # PD-Regler beim Geradeausfahren. EINSTELLEN!

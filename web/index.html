@@ -111,12 +111,19 @@
         </label>
         <label class="inline speed">Tempo
           <input type="range" id="speed" min="0" max="100" value="50">
-          <output id="speed-label">5×</output>
+          <output id="speed-label">2×</output>
         </label>
+        <label class="check"><input type="checkbox" id="noise"> Messrauschen</label>
+        <label class="check"><input type="checkbox" id="slip"> Kettenschlupf</label>
         <div class="clock">
           <span><b id="st-time">0:40</b> von <span id="st-limit">8:00</span></span>
           <div class="timebar" aria-hidden="true"><div id="timebar-fill" class="timebar-fill"></div></div>
         </div>
+      </div>
+
+      <div class="now" aria-live="polite">
+        <span class="muted small">Jetzt</span>
+        <p><span id="st-now" class="action">–</span> <span id="st-detail" class="muted"></span></p>
       </div>
 
       <canvas id="maze" aria-label="Labyrinth mit Roboter"></canvas>
@@ -132,6 +139,7 @@
         <li><i class="ln path"></i>geplanter Weg</li>
         <li><i class="ln wall"></i>erkannte Wand</li>
         <li><i class="ln truth"></i>echte Wand</li>
+        <li><i class="ln beam"></i>Ultraschall</li>
         <li><i class="sw black"></i>schwarz</li>
         <li><i class="sw blue"></i>blau</li>
         <li><i class="sw silver"></i>silber</li>
@@ -146,7 +154,6 @@
           <dt>Modus</dt><dd id="st-mode">–</dd>
           <dt>Besucht</dt><dd id="st-visited">–</dd>
           <dt>Aktionen</dt><dd id="st-actions">–</dd>
-          <dt>Letzte Aktion</dt><dd id="st-action">–</dd>
           <dt>Checkpoint</dt><dd id="st-checkpoint">–</dd>
         </dl>
       </section>
@@ -170,7 +177,8 @@
           <dt>Links</dt><dd><span id="se-left">–</span><b id="sw-left" class="tag">Wand</b></dd>
           <dt>Rechts</dt><dd><span id="se-right">–</span><b id="sw-right" class="tag">Wand</b></dd>
           <dt>Boden</dt><dd><i id="se-swatch" class="sw"></i><span id="se-color">–</span></dd>
-          <dt>Gyro</dt><dd id="se-gyro">–</dd>
+          <dt>Encoder L / R</dt><dd id="se-enc">–</dd>
+          <dt>Schräglage</dt><dd id="se-skew" title="Abweichung der echten Blickrichtung von der Richtung, die der Roboter glaubt">–</dd>
         </dl>
       </section>
 

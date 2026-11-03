@@ -167,6 +167,22 @@ def _grid(cm: float, half: float) -> float:
     return half + config.TILE_SIZE_CM * round((cm - half) / config.TILE_SIZE_CM)
 
 
+class StallWatch:
+    """Merkt, wenn sich die Ketten trotz Fahrbefehl länger nicht drehen (z.B. schräg an einer Wand)."""
+
+    def __init__(self, clock):
+        self.clock = clock
+        self.ref: tuple[float, float] | None = None
+        self.since = clock.monotonic()
+
+    def stalled(self, enc: tuple[float, float]) -> bool:
+        now = self.clock.monotonic()
+        if self.ref is None or abs(enc[0] - self.ref[0]) + abs(enc[1] - self.ref[1]) > config.STALL_DEG:
+            self.ref, self.since = enc, now
+            return False
+        return now - self.since >= config.STALL_S
+
+
 class RealRobot(RobotInterface):
     def __init__(self, motors: Motors, ultrasonic: Ultrasonic, color: ColorSensor,
                  on_change: Callable[[], None] | None = None, clock=time):
@@ -259,6 +275,7 @@ class RealRobot(RobotInterface):
         order = cycle(("front", "left", "front", "right"))
         corr, mode = 0.0, steering.mode
         bad, last_color_t = 0, 0.0
+        stall = StallWatch(self.clock)
 
         while True:
             self._check()
@@ -287,6 +304,13 @@ class RealRobot(RobotInterface):
                 else:
                     l, r = self.encoders
                     corr = steering.side(side, cm, travelled, (l - l0, r - r0))
+
+            # Ketten blockiert: nicht ewig weiterdrücken, zurück und als Wand melden
+            if stall.stalled(self.encoders):
+                self.motors.stop()
+                self.set_action("Ketten blockiert", "fährt zurück")
+                self.drive_cm(-travelled)
+                return MoveResult(MoveStatus.BLOCKED)
 
             # Wie weit noch? Haltepunkt aus der letzten Messung vorne (Encoder begrenzt ihn)
             remaining = stop_at - travelled
@@ -380,13 +404,14 @@ class RealRobot(RobotInterface):
         """90° drehen, direction +1 = rechts, -1 = links."""
         self._begin("dreht rechts" if direction > 0 else "dreht links")
         l0, r0 = self.motors.positions()
+        stall = StallWatch(self.clock)
         while True:
             self._check()
             self.encoders = self.motors.positions()
             l, r = self.encoders
             done = direction * ((l - l0) - (r - r0)) / 2
             remaining = config.MOTOR_DEG_PER_90 - done
-            if remaining <= 0:
+            if remaining <= 0 or stall.stalled(self.encoders):
                 break
             speed = config.TURN_SPEED_DPS if remaining > config.TURN_SLOW_DEG else config.TURN_SLOW_DPS
             self.motors.set_dps(direction * speed, -direction * speed)
@@ -399,11 +424,12 @@ class RealRobot(RobotInterface):
         """Gerade nach Encoder fahren (negativ = rückwärts), beide Ketten im Gleichlauf."""
         direction = 1 if cm >= 0 else -1
         l0, r0 = self.motors.positions()
+        stall = StallWatch(self.clock)
         while True:
             self._check()
             done = direction * self._travelled(l0, r0)
             remaining = abs(cm) - done
-            if remaining <= 0:
+            if remaining <= 0 or stall.stalled(self.encoders):
                 break
             speed = config.DRIVE_SPEED_DPS if remaining > config.DRIVE_SLOW_CM else config.DRIVE_SLOW_DPS
             l, r = self.encoders

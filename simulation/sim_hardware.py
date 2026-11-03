@@ -33,8 +33,9 @@ TRACK_CM = 4 * config.MOTOR_DEG_PER_90 / config.MOTOR_DEG_PER_CM / math.pi
 US_CONE_DEG = 15.0          # halber Öffnungswinkel des Schallkegels
 US_NOISE_CM = 0.4           # Messrauschen (Standardabweichung), wenn eingeschaltet
 US_DROPOUT = 0.03           # Anteil Messungen ohne Echo, wenn Rauschen eingeschaltet
-SLIP_MAX = 0.06             # Kettenschlupf geradeaus bis 6 %, wenn eingeschaltet
-TURN_SKID = 0.08            # beim Drehen rutschen die Ketten zusätzlich: 8 % weniger Drehung
+# Schlupf: streut um den eingemessenen Wert (MOTOR_DEG_PER_CM und MOTOR_DEG_PER_90 enthalten den mittleren Schlupf)
+SLIP_MAX = 0.03             # die Ketten rutschen unterschiedlich, bis 3 % Unterschied
+TURN_SKID = 0.04            # Drehungen streuen bis ±4 % um den eingemessenen Wert
 TILE_COLORS = {tile: name for name, tile in COLOR_TO_TILE.items()}
 RAW = {"white": (900, 850, 700, 2500), "black": (60, 60, 50, 170), "blue": (150, 300, 600, 1000),
        "silver": (1300, 1250, 1050, 3700), "red": (900, 250, 200, 1300)}   # nur für die Anzeige
@@ -110,6 +111,7 @@ class SimBody:
         self.floating = True
         self.slip_on = False
         self._slip = [0.0, 0.0]
+        self._turn_err = 0.0
         self.rng = random.Random()
         self.segments = _wall_segments(world)
         self.near = _near(world, self.segments)
@@ -183,7 +185,8 @@ class SimBody:
             self.speed = [0.0, 0.0]
             return
         if self.slip_on:
-            self._slip = [min(SLIP_MAX, max(0.0, s + self.rng.gauss(0, 0.003))) for s in self._slip]
+            self._slip = [min(SLIP_MAX, max(0.0, s + self.rng.gauss(0, 0.002))) for s in self._slip]
+            self._turn_err = min(TURN_SKID, max(-TURN_SKID, self._turn_err + self.rng.gauss(0, 0.003)))
 
         ground = []
         for i in (0, 1):
@@ -195,7 +198,7 @@ class SimBody:
 
         turn = (ground[0] - ground[1]) / TRACK_CM          # rad/s, im Uhrzeigersinn
         if self.slip_on:
-            turn *= 1 - TURN_SKID
+            turn *= 1 + self._turn_err
         v = (ground[0] + ground[1]) / 2
         heading = self.heading + math.degrees(turn * dt)
         mid = math.radians((self.heading + heading) / 2)
