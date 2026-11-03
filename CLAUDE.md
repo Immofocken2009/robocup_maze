@@ -36,6 +36,9 @@
     Versorgung **3,3 V** (Echo dann 3,3 V, kein Spannungsteiler). Pins in `config.py` (`US_PINS`):
     vorne Trig 5 / Echo 6, links Trig 12 / Echo 13, rechts Trig 19 / Echo 26.
     Datenblatt: 2,8–5,5 V, blinder Bereich ~2 cm, Messzyklus ~70 ms (GPIO), I2C-Adresse fest 0x57 (daher kein I2C).
+    **Messung mit `lgpio`** (nicht `gpiozero.DistanceSensor`, das hängt ohne Echo): Sensoren nacheinander,
+    Echo-Flanken mit Kernel-Zeitstempel, Timeout 50 ms = kein Echo. Test: `python3 -m tools.test_ultrasonic`
+    Stand 2026-11-03: vorne angeschlossen und misst (stabil ±0,5 cm), links/rechts noch nicht angeschlossen.
 - Kamera vorhanden, Nutzung noch offen
 - Sprache: Python
 
@@ -198,6 +201,7 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 ## Befehle (im Projektordner ausführen)
 
 - Taster testen: `python3 -m tools.test_buttons`
+- Ultraschall testen: `python3 -m tools.test_ultrasonic`
 
 - Simulation starten: `python3 -m web.server`, dann im Browser `http://<Pi-IP>:8000`
 - Tests: `python3 -m unittest discover -s tests`
