@@ -63,6 +63,8 @@ class Steering:
     seitlichen Wandern nicht, nur wenn eine Wand wegbricht oder auftaucht. Darauf beruht der
     Breiten-Wächter, der eine Seite ignoriert, sobald sie nicht mehr zu B passt. Fehlt eine Seite,
     hält er zur anderen B / 2. Eine Seite zählt erst nach zwei zusammenpassenden Messungen.
+    Den D-Anteil gibt es nur, wenn beide Seiten zählen: Bei einer einzelnen Wand hält er sonst das
+    Hochkriechen einer wegbrechenden Wand für Schrägstand.
     """
 
     def __init__(self, corridor_cm: float = config.CORRIDOR_CM):
@@ -144,6 +146,8 @@ class Steering:
             t0, o0 = self.samples[0]
             if travelled - t0 >= config.STEER_D_WINDOW_CM / 2:
                 slope = (offset - o0) / (travelled - t0)   # positiv = driftet nach rechts
+            if not (self.trusted["left"] and self.trusted["right"]):
+                slope = 0.0                                 # nur eine Wand: nur P
             raw = config.STEER_KP * offset + config.STEER_KD * slope
         # Lenkänderung pro gefahrenem cm begrenzen: kein Ruck, auch nicht bei einer Fehlmessung
         allowed = config.STEER_SLEW_DPS_PER_CM * max(0.0, travelled - self.corr_at)

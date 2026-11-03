@@ -241,6 +241,18 @@ class SteeringTest(unittest.TestCase):
         self.assertLess(max(corr), 25)            # nur kurz leicht nach links, kein Ausscheren
         self.assertAlmostEqual(corr[-1], 0.0, delta=3)   # praktisch gerade (< 0,15 cm daneben)
 
+    def test_single_far_wall_breaking_away(self):
+        """Nur links eine Wand, eine Kachel weiter (39 cm), sie bricht weg: kriecht langsam hoch."""
+        s = Steering()
+        corr = drive(s, [39, 39, 39, 39, 39.3, 40.2, 41.5, None, None], [None] * 9)
+        self.assertEqual(s.mode, "encoder")
+        self.assertLess(max(corr), 30)
+
+    def test_single_near_wall_breaking_away(self):
+        s = Steering()
+        corr = drive(s, [9, 9, 9, 9, 9.4, 10.6, 13, None, None], [None] * 9)
+        self.assertLess(max(corr), 15)
+
     def test_returning_wall_needs_two_readings(self):
         s = Steering()
         drive(s, [9, 9, 39, 39], [9, 9, 9, 9])
