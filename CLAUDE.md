@@ -64,6 +64,7 @@ robocup/
 │   ├── color_sensor.py    #   Farbsensor unten
 │   ├── buttons.py         #   Taster K1–K4
 │   ├── fan.py             #   Lüfter am Fan-Anschluss, CPU-Temperatur
+│   ├── run_log.py         #   Aufzeichnung eines Laufs (Hardware-Grenze + Rechenwerte), Lesen
 │   └── robot.py           #   echter Roboter: setzt navigation/robot_interface.py um
 ├── navigation/            # reine Logik, kennt keine Hardware
 │   ├── maze_map.py        #   die Karte
@@ -80,9 +81,10 @@ robocup/
 │   ├── index.html
 │   ├── app.js
 │   └── style.css
-├── tools/                 # Testprogramme (Motoren, Sensoren, Farbkalibrierung)
+├── tools/                 # Testprogramme (Motoren, Sensoren, Farbkalibrierung), replay_run.py (Lauf nachrechnen)
 ├── tests/                 # automatische Tests der Logik (unittest)
-└── data/                  # Kalibrierwerte
+├── data/                  # Kalibrierwerte
+└── logs/                  # Aufzeichnungen der echten Läufe (ein Lauf = eine .jsonl.gz-Datei, nicht in Git)
 ```
 
 Grundsatz: `navigation/` importiert nie etwas aus `hardware/`, damit die Logik im Simulator läuft.
@@ -222,6 +224,22 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Schreibrechte auf den Lüfter; beim Beenden oder Absturz schaltet systemd sie wieder ein, dann regelt der
   Kernel normal. `main.py` von Hand gestartet: nur Anzeige, der Kernel regelt.
   Webseite (Roboter-Ansicht): CPU-Temperatur oben, Abschnitt „System“ mit Drehzahl, Stufe, wer regelt.
+- **Aufzeichnung jedes Laufs (entschieden 2026-11-03):** damit ein Lauf ohne Verbindung danach 1:1
+  nachvollzogen werden kann.
+  - Automatisch von K1 bis Ende/K2 nach `logs/<Datum>_<Uhrzeit>.jsonl.gz` (JSON-Zeilen, gzip). Wird laufend
+    auf die Karte geschrieben, bei Stromausfall ist alles bis kurz davor lesbar. **Nichts wird automatisch gelöscht.**
+  - **Eingänge an der Hardware-Grenze:** jeder Aufruf von Uhr (`monotonic`/`sleep`), Encoder, Motorbefehle,
+    Ultraschall (mit Echo-Pulsbreite), Farbsensor-Rohwerte, Taster (Unterbrechung, Antwort im Lack of Progress).
+    Kopf: Datum, Git-Stand, alle `config`-Werte, Farbkalibrierung, gemessene Gangbreite, Gefahrenzonen-Modus.
+    Aufrufe für die Webseite (Akku, Motorleistung, Anzeige im Stand) zählen nicht dazu.
+  - **Zusätzlich alle Rechenwerte:** Lenkung (Messung, welche Seite zählt, B, Abweichung, Schräg, P/D, Korrektur),
+    Haltepunkt, Strecke, Farbprüfung, Drehen, Schrägstand-Schätzung, Wände, Planung (Ziele, Aktionen,
+    Zeitschätzung), der Zustand wie auf der Webseite (alle `ROBOT_PUBLISH_S`), Ereignisse, Fehler mit Traceback.
+  - **Nachrechnen:** `python3 -m tools.replay_run [Datei]` lässt den echten Code mit den aufgezeichneten
+    Eingängen nochmal laufen und vergleicht jeden Motorbefehl und Rechenwert (meldet die erste Abweichung).
+    Dafür laufen alle Zeiten des Fahrcodes über die austauschbare Uhr (auch das Bodenmessen im Stand).
+  - **Anschauen:** Webseite, dritter Reiter „Aufzeichnung“: Lauf auswählen, Zeitleiste (abspielen, spulen,
+    Aktion vor/zurück), Karte, Werte und Rechnung zum Zeitpunkt, Diagramme, Rohdaten um den Zeitpunkt, Download.
 - **Akku und Verbrauch:** Der BrickPi3 misst nur Spannungen, keinen Strom. Die Webseite zeigt die
   **Akkuspannung in V** (oben in der Leiste, Warnung unter `config.BATTERY_LOW_V`) und statt des Stroms
   die **Motorleistung in % pro Kette** (vom BrickPi3, kein echter Stromwert). Ein Strommodul
@@ -316,6 +334,8 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
   nach Codeänderungen `sudo systemctl restart robocup-robot robocup-web`
   (Läuft der Dienst, belegt er GPIO/BrickPi: vor `tools.*` oder `python3 main.py` erst `sudo systemctl stop robocup-robot`.)
 - Tests: `python3 -m unittest discover -s tests`
+- Lauf nachrechnen: `python3 -m tools.replay_run` (neueste Aufzeichnung) oder `python3 -m tools.replay_run logs/<Datei>`,
+  alles als Text: `--text`
 
 ## Offene Fragen an den Projektinhaber
 
