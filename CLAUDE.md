@@ -24,6 +24,9 @@
     **TCS34725** bestätigt (I2C-Bus 1, Adresse 0x29, ID 0x44). Liefert Werte (Stand 2026-11-03).
   - 1× **PmodGYRO** (Digilent, 3-Achsen-Gyroskop), über **I2C** angeschlossen.
     **Antwortet noch nicht** (weder 0x68 noch 0x69 auf Bus 1, Stand 2026-11-03).
+    Anschluss: **J2** (nicht J1!), Reihenfolge SCL, SDA, GND, VCC (Pin 1 = eckiges Pad) →
+    Pi Pin 5 (SCL), Pin 3 (SDA), Pin 6 (GND), Pin 1 (3,3 V). Beide J2-Reihen sind gleich belegt.
+    Erwartet: Adresse 0x69, WHO_AM_I (Register 0x0F) = 0xD3.
   - 4er-Tastermodul (GND, K1–K4): K1 = GPIO 17, K2 = GPIO 27, K3 = GPIO 22, K4 = GPIO 23.
     Schaltet gegen GND, interne Pull-ups (gedrückt = LOW). Test: `python3 -m tools.test_buttons`
     **Belegung am 2026-11-03 geprüft** (K1–K4 nacheinander gedrückt, korrekt erkannt, kein Prellen).
@@ -204,6 +207,8 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 ## Bekannte Stolpersteine
 
 - I2C ist eingeschaltet (`dtparam=i2c_arm=on`), Bus 1 = GPIO 2 (SDA) / GPIO 3 (SCL).
+- Gyro-Reihe an J2 verdreht gesteckt → SDA hängt auf LOW, der ganze I2C-Bus (auch Farbsensor) ist blockiert.
+  Prüfen mit `pinctrl get 2,3`: im Ruhezustand müssen beide `hi` sein.
 
 - `lgpio` (Backend von `gpiozero` auf dem Pi 5) legt Dateien im aktuellen
   Arbeitsverzeichnis an. Programme müssen aus einem beschreibbaren Ordner gestartet werden.
