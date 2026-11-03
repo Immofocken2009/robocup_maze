@@ -12,7 +12,8 @@ START: Pos = (0, 0)
 
 class Explorer:
     def __init__(self, robot: RobotInterface, time_limit_s: float = config.TIME_LIMIT_S,
-                 red_mode: str = config.RED_MODE, on_update: Callable[[], None] | None = None):
+                 red_mode: str = config.RED_MODE, on_update: Callable[[], None] | None = None,
+                 trace: Callable[..., None] | None = None):
         if red_mode not in config.RED_MODES:
             raise ValueError(f"Unbekannter Modus für die Gefahrenzone: {red_mode}")
         self.robot = robot
@@ -20,6 +21,7 @@ class Explorer:
         self.red_mode = red_mode                # zuletzt, meiden, normal
         self.enter_red = red_mode == "normal"   # darf die Gefahrenzone gerade betreten werden?
         self.on_update = on_update or (lambda: None)   # wird nach jeder Änderung aufgerufen (Anzeige)
+        self.trace = trace or (lambda what, **values: None)   # jede Entscheidung (Aufzeichnung)
 
         self.maze = MazeMap()
         self.pos: Pos = START
@@ -68,6 +70,8 @@ class Explorer:
                 self._log("Alles erkundet")
                 break
             actions = plan_path(self.maze, self.pos, self.heading, targets)
+            self.trace("plan", position=self.pos, blick=self.heading.name, ziele=sorted(targets),
+                       aktionen="".join(actions) if actions is not None else None)
             if actions is None:
                 self._log("Keine Grenzkachel erreichbar")
                 break
@@ -142,6 +146,8 @@ class Explorer:
         target = step(self.pos, self.heading)
         avoid = {TileType.BLACK} if self.enter_red else {TileType.BLACK, TileType.RED}
         result = self.robot.forward(avoid)
+        self.trace("ergebnis", ziel=target, status=result.status.name,
+                   boden=result.floor.value if result.floor else None)
 
         if result.status is MoveStatus.BLOCKED:
             self.maze.set_wall(self.pos, self.heading, True)
@@ -184,11 +190,15 @@ class Explorer:
         end_pos, end_heading = follow(self.pos, self.heading, actions)[-1]
         home = plan_path(self.maze, end_pos, end_heading, {START})
         if home is None:
+            self.trace("zeit", heimweg=None, reicht=True)
             return True
-        needed = (estimate_time(self.maze, self.pos, self.heading, actions)
-                  + estimate_time(self.maze, end_pos, end_heading, home)
-                  + config.EXIT_SIGNAL_S)
-        return self.robot.time() + needed + config.TIME_MARGIN_S <= self.time_limit_s
+        there = estimate_time(self.maze, self.pos, self.heading, actions)
+        back = estimate_time(self.maze, end_pos, end_heading, home)
+        now = self.robot.time()
+        enough = now + there + back + config.EXIT_SIGNAL_S + config.TIME_MARGIN_S <= self.time_limit_s
+        self.trace("zeit", jetzt=now, hin=there, heimweg="".join(home), heim=back, exit=config.EXIT_SIGNAL_S,
+                   reserve=config.TIME_MARGIN_S, grenze=self.time_limit_s, reicht=enough)
+        return enough
 
     def _log(self, text: str):
         self.events.append(f"{_clock(self.robot.time())}  {text}")

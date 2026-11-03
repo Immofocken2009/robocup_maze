@@ -17,7 +17,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable
 
 import config
-from hardware.color_sensor import COLOR_TO_TILE
+from hardware.color_sensor import COLOR_TO_TILE, ColorSensor
 from hardware.robot import RealRobot
 from hardware.ultrasonic import SIDES, Ultrasonic
 from navigation.maze_map import Dir, Pos, TileType
@@ -38,7 +38,7 @@ SLIP_MAX = 0.03             # die Ketten rutschen unterschiedlich, bis 3 % Unter
 TURN_SKID = 0.04            # Drehungen streuen bis ±4 % um den eingemessenen Wert
 TILE_COLORS = {tile: name for name, tile in COLOR_TO_TILE.items()}
 RAW = {"white": (900, 850, 700, 2500), "black": (60, 60, 50, 170), "blue": (150, 300, 600, 1000),
-       "silver": (1300, 1250, 1050, 3700), "red": (900, 250, 200, 1300)}   # nur für die Anzeige
+       "silver": (1300, 1250, 1050, 3700), "red": (900, 250, 200, 1300)}   # Rohwerte, zugleich Kalibrierung
 
 Segment = tuple[float, float, float, float]
 
@@ -362,27 +362,21 @@ class SimUltrasonic:
 
 
 class SimColorSensor:
+    read_color = ColorSensor.read_color     # gleiche Auswertung wie beim echten Sensor
+    read_tile = ColorSensor.read_tile
+
     def __init__(self, body: SimBody, clock: SimClock):
         self.body = body
         self.clock = clock
         self.integration_s = max(1, round(config.COLOR_INTEGRATION_MS / 2.4)) * 0.0024
+        self.calibration = dict(RAW)
         self.warning = None
         self.last_raw: tuple[int, int, int, int] | None = None
         self.last_color: str | None = None
 
-    def read_tile(self) -> TileType:
-        tile = self.body.floor_at(*self.body.color_point())
-        self.last_color = TILE_COLORS[tile]
-        self.last_raw = RAW[self.last_color]
-        return tile
-
-    def read_color(self) -> str:
-        self.read_tile()
-        return self.last_color
-
-    def read_floor(self, n: int = 3) -> TileType:
-        self.clock.sleep(self.integration_s * n)
-        return self.read_tile()
+    def read_raw(self) -> tuple[int, int, int, int]:
+        self.last_raw = RAW[TILE_COLORS[self.body.floor_at(*self.body.color_point())]]
+        return self.last_raw
 
     def close(self):
         pass

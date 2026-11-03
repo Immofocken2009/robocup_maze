@@ -11,7 +11,7 @@ Taster (main.py) unterbrechen jede Aktion über interrupt(): K2 -> RunStopped, K
 """
 import math
 import time
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable
 from itertools import cycle
 
@@ -23,6 +23,7 @@ from navigation.maze_map import TileType
 from navigation.robot_interface import MoveResult, MoveStatus, RobotInterface
 
 LOOP_S = 0.01   # Takt der Regelschleifen
+FLOOR_READINGS = 3  # Boden im Stand: so viele frische Messungen, die häufigste Farbe gewinnt
 
 FLOOR_NAMES = {TileType.NORMAL: "Weiß", TileType.BLACK: "Schwarz", TileType.BLUE: "Blau",
                TileType.SILVER: "Silber", TileType.RED: "Rot"}
@@ -83,6 +84,8 @@ class Steering:
         self.pending: dict[str, float | None] = {"left": None, "right": None}   # wartet auf Bestätigung
         self.mode: str | None = None    # both, left, right, encoder
         self.offset = 0.0               # letzte Abweichung von der Sollposition (cm, positiv = zu weit rechts)
+        self.slope = 0.0                # letzter Schrägstand (Abweichung je cm Fahrt) für den D-Anteil
+        self.raw = 0.0                  # Lenkkorrektur vor Begrenzung (dps)
         self.samples: deque[tuple[float, float]] = deque()   # (gefahrene cm, Abweichung cm)
         self.enc_ref = 0.0
         self.corr = 0.0
@@ -146,6 +149,7 @@ class Steering:
             self.mode = mode
         if mode == "encoder":
             raw = config.STEER_ENC_K * (enc[0] - enc[1] - self.enc_ref)
+            self.slope = 0.0
         elif not new_sample:
             return self.corr
         else:
@@ -159,11 +163,26 @@ class Steering:
             if not (self.trusted["left"] and self.trusted["right"]):
                 slope = 0.0                                 # nur eine Wand: nur P
             raw = config.STEER_KP * offset + config.STEER_KD * slope
+            self.slope = slope
+        self.raw = raw
         # Lenkänderung pro gefahrenem cm begrenzen: kein Ruck, auch nicht bei einer Fehlmessung
         allowed = config.STEER_SLEW_DPS_PER_CM * max(0.0, travelled - self.corr_at)
         self.corr += _clamp(_clamp(raw, config.STEER_MAX_DPS) - self.corr, allowed)
         self.corr_at = travelled
         return self.corr
+
+
+    def values(self) -> dict:
+        """Alle Werte der Lenkung (für die Aufzeichnung)."""
+        pd = self.mode not in (None, "encoder")
+        return {"links": self.last["left"], "rechts": self.last["right"],
+                "zählt_links": self.trusted["left"], "zählt_rechts": self.trusted["right"],
+                "wartet_links": self.pending["left"], "wartet_rechts": self.pending["right"],
+                "breite": self.width, "gang": self.corridor, "modus": self.mode,
+                "abweichung": self.offset, "schräg": self.slope,
+                "p": config.STEER_KP * self.offset if pd else None,
+                "d": config.STEER_KD * self.slope if pd else None,
+                "encoder_ref": self.enc_ref, "soll": self.raw, "korrektur": self.corr}
 
 
 class HeadingEstimate:
@@ -231,6 +250,7 @@ class RealRobot(RobotInterface):
         self.us = ultrasonic
         self.color = color
         self.on_change = on_change or (lambda: None)   # nach jeder Änderung (Anzeige, wird gedrosselt)
+        self.trace = lambda what, **values: None        # jeder Rechenschritt (Aufzeichnung, hardware/run_log.py)
         self.clock = clock      # monotonic() und sleep(); die Simulation gibt ihre Sim-Uhr hinein
 
         self._interrupt: str | None = None
@@ -291,6 +311,7 @@ class RealRobot(RobotInterface):
         self._begin("misst Wände")
         values = self.us.read_all(config.US_READINGS)
         self.walls = {side: v is not None and v < config.WALL_THRESHOLD_CM for side, v in values.items()}
+        self.trace("wände", werte=values, wände=self.walls)
         self.on_change()
         return self.walls
 
@@ -307,12 +328,15 @@ class RealRobot(RobotInterface):
         stop_at = stop_distance(front, 0.0)
         stop_text = "Halt nach Abstand vorne" if stop_at is not None else "Halt nach Encoder"
         stop_at = stop_at or config.TILE_SIZE_CM
+        self.trace("vorwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm)
 
         l0, r0 = self.motors.positions()
         steering = Steering(self.corridor_cm)
         heading = HeadingEstimate()
         for side in ("left", "right"):          # erste Seitenmessung, zählt nach der zweiten
-            steering.side(side, self.us.measure(side), 0.0, (0.0, 0.0))
+            cm = self.us.measure(side)
+            steering.side(side, cm, 0.0, (0.0, 0.0))
+            self.trace("seite", seite=side, cm=cm, gefahren=0.0, **steering.values())
         self.set_action("fährt vorwärts", f"{stop_text}, {STEER_TEXT[steering.mode]}")
         order = cycle(("front", "left", "front", "right"))
         corr, mode = 0.0, steering.mode
@@ -331,6 +355,7 @@ class RealRobot(RobotInterface):
                 last_color_t = now
                 tile = self.color.read_tile()
                 bad = bad + 1 if tile in avoid else 0
+                self.trace("farbe", boden=tile, meiden=tile in avoid, hintereinander=bad)
                 if bad >= config.COLOR_STOP_COUNT:
                     self.motors.stop()
                     self.floor = tile
@@ -344,17 +369,22 @@ class RealRobot(RobotInterface):
                 cm = self.us.measure(side)
                 travelled = self._travelled(l0, r0)
                 if side == "front":
-                    stop_at = stop_distance(cm, travelled) or stop_at   # jede Messung neu ins Raster
+                    grid = stop_distance(cm, travelled)
+                    stop_at = grid or stop_at       # jede Messung neu ins Raster
+                    self.trace("vorne", cm=cm, gefahren=travelled, raster=grid, halt_bei=stop_at)
                 else:
                     l, r = self.encoders
                     heading.track(travelled, (l - l0, r - r0))
                     corr = steering.side(side, cm, travelled, (l - l0, r - r0))
                     if steering.mode == "both":
                         heading.sample(steering.offset)
+                    self.trace("seite", seite=side, cm=cm, gefahren=travelled, schräg_proben=len(heading.samples),
+                               **steering.values())
 
             # Ketten blockiert: nicht ewig weiterdrücken, zurück und als Wand melden
             if stall.stalled(self.encoders):
                 self.motors.stop()
+                self.trace("blockiert", gefahren=travelled, encoder=self.encoders)
                 self.set_action("Ketten blockiert", "fährt zurück")
                 self.drive_cm(-travelled)
                 return MoveResult(MoveStatus.BLOCKED)
@@ -362,10 +392,13 @@ class RealRobot(RobotInterface):
             # Wie weit noch? Haltepunkt aus der letzten Messung vorne (Encoder begrenzt ihn)
             remaining = stop_at - travelled
             if remaining <= 0:
+                self.trace("angekommen", gefahren=travelled, halt_bei=stop_at)
                 break
             speed = config.DRIVE_SPEED_DPS if remaining > config.DRIVE_SLOW_CM else config.DRIVE_SLOW_DPS
             l, r = self.encoders
             corr = steering.hold(travelled, (l - l0, r - r0))
+            self.trace("fahrt", gefahren=travelled, halt_bei=stop_at, rest=remaining, tempo=speed,
+                       korrektur=corr, modus=steering.mode, links_dps=speed - corr, rechts_dps=speed + corr)
             if steering.mode != mode:
                 mode = steering.mode
                 self.detail = f"{stop_text}, {STEER_TEXT[mode]}"
@@ -379,10 +412,14 @@ class RealRobot(RobotInterface):
         l, r = self.encoders
         heading.track(self._travelled(l0, r0), (l - l0, r - r0))
         skew = heading.degrees()
+        fix = 0.0
         if skew is not None and abs(skew) >= config.HEADING_FIX_MIN_DEG:
-            skew = _clamp(skew, config.HEADING_FIX_MAX_DEG)
-            self.detail = f"dreht sich {abs(skew):.1f}° gerade"
-            self._rotate(-skew)
+            fix = -_clamp(skew, config.HEADING_FIX_MAX_DEG)
+        self.trace("schräglage", proben=len(heading.samples), geschätzt=skew,
+                   encoder_drehung=math.degrees(heading.angle), dreht=fix)
+        if fix:
+            self.detail = f"dreht sich {abs(fix):.1f}° gerade"
+            self._rotate(fix)
         floor = self._measure_floor()
         return MoveResult(MoveStatus.OK, floor)
 
@@ -422,7 +459,7 @@ class RealRobot(RobotInterface):
 
     def _check(self):
         """Taster oder Zeitlimit: anhalten und die Aktion abbrechen."""
-        reason = self._interrupt
+        reason = self._read_interrupt()
         if reason:
             self.motors.stop()
             raise RunStopped if reason == "stop" else LackOfProgress
@@ -430,13 +467,23 @@ class RealRobot(RobotInterface):
             self.motors.stop()
             raise TimeUp
 
+    def _read_interrupt(self) -> str | None:
+        """Unterbrechung durch einen Taster (eigene Methode, damit die Aufzeichnung sie mitschreibt)."""
+        return self._interrupt
+
     def _travelled(self, l0: float, r0: float) -> float:
         self.encoders = self.motors.positions()
         l, r = self.encoders
         return ((l - l0) + (r - r0)) / 2 / config.MOTOR_DEG_PER_CM
 
     def _measure_floor(self) -> TileType:
-        self.floor = self.color.read_floor()
+        """Im Stand: frische Messungen (über die Roboter-Uhr gewartet), die häufigste Farbe gewinnt."""
+        tiles = []
+        for _ in range(FLOOR_READINGS):
+            self.clock.sleep(self.color.integration_s)
+            tiles.append(self.color.read_tile())
+        self.floor = Counter(tiles).most_common(1)[0][0]
+        self.trace("boden", messungen=tiles, ergebnis=self.floor)
         self.on_change()
         return self.floor
 
@@ -460,6 +507,7 @@ class RealRobot(RobotInterface):
             if remaining <= 0 or stall.stalled(self.encoders):
                 break
             speed = config.TURN_SPEED_DPS if remaining > config.TURN_SLOW_DEG else config.TURN_SLOW_DPS
+            self.trace("drehen", winkel=deg, ziel=target, gedreht=done, rest=remaining, tempo=speed)
             self.motors.set_dps(direction * speed, -direction * speed)
             self.motion = {**(self.motion or {}),
                            "turn_deg": round(direction * 90 * done / config.MOTOR_DEG_PER_90)}
@@ -481,6 +529,7 @@ class RealRobot(RobotInterface):
             speed = config.DRIVE_SPEED_DPS if remaining > config.DRIVE_SLOW_CM else config.DRIVE_SLOW_DPS
             l, r = self.encoders
             corr = _clamp(config.STEER_ENC_K * ((l - l0) - (r - r0)), config.STEER_MAX_DPS)
+            self.trace("strecke", ziel=cm, gefahren=done, rest=remaining, tempo=speed, korrektur=corr)
             self.motors.set_dps(direction * speed - corr, direction * speed + corr)
             self.on_change()
             self.clock.sleep(LOOP_S)

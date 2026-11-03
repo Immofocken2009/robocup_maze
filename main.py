@@ -6,6 +6,7 @@ K1 = Start, K2 = Stopp (zurück in den Zustand wie nach dem Booten),
 K3 = Lack of Progress (Roboter umsetzen, nochmal K3 = weiter).
 Schickt seinen Zustand live an die Webseite (config.ROBOT_LINK_URL). Läuft die Webseite nicht,
 fährt der Roboter trotzdem und verbindet sich später neu.
+Jeder Lauf wird nach logs/ aufgezeichnet (hardware/run_log.py), nachrechnen mit tools/replay_run.py.
 """
 import asyncio
 import json
@@ -23,6 +24,7 @@ from hardware.color_sensor import ColorSensor
 from hardware.fan import Fan
 from hardware.motors import Motors
 from hardware.robot import LackOfProgress, RealRobot, RunStopped, TimeUp
+from hardware.run_log import Clock, Recorder
 from hardware.ultrasonic import Ultrasonic
 from navigation.explorer import Explorer
 
@@ -35,6 +37,48 @@ STATUS_TEXT = {
     "finished": "Fertig: K1 startet neu, K2 setzt zurück",
     "error": "Hardware antwortet nicht",
 }
+
+
+def competition(robot: RealRobot, explorer: Explorer, wait_lop, on_status=lambda status: None) -> bool:
+    """Ein Wettkampflauf bis zum Ende. True = mit K2 abgebrochen.
+    wait_lop(): nach Lack of Progress auf 'lop' (K3, weiter) oder 'stop' (K2) warten.
+    Wird auch zum Nachrechnen einer Aufzeichnung benutzt (tools/replay_run.py)."""
+    robot.reset()
+    robot.start_clock()
+    on_status("running")
+    resume = stopped = False
+    while True:
+        try:
+            if resume:
+                explorer.resume()
+            else:
+                explorer.run()
+            break
+        except LackOfProgress:
+            robot.motors.stop()
+            explorer.mode = "Lack of Progress"
+            robot.set_action("wartet auf K3", "Roboter auf den letzten Checkpoint setzen")
+            on_status("lop")
+            if wait_lop() == "stop":
+                stopped = True
+                break
+            robot.clear_interrupt()
+            explorer.lack_of_progress()
+            on_status("running")
+            resume = True
+        except RunStopped:
+            stopped = True
+            break
+        except TimeUp:
+            explorer.mode = "Zeit abgelaufen"
+            break
+        except Exception:
+            log.exception("Fehler im Lauf")
+            explorer.mode = "Fehler, siehe Aufzeichnung oder journalctl -u robocup-robot"
+            break
+    robot.motors.stop()
+    robot.clear_interrupt()
+    return stopped
 
 
 class RobotProgram:
@@ -55,6 +99,7 @@ class RobotProgram:
         self.ws: aiohttp.ClientWebSocketResponse | None = None
         self.closing = False
         self.fan = Fan()
+        self.rec = Recorder()       # zeichnet jeden Lauf auf (logs/)
 
     # --- Taster (laufen im gpiozero-Thread) -------------------------------------
 
@@ -78,7 +123,8 @@ class RobotProgram:
             except queue.Empty:
                 pass
             if not self.closing:
-                self.robot.poll_sensors()
+                with self.rec.paused():         # nur Anzeige, gehört nicht zum Lauf
+                    self.robot.poll_sensors()
                 self.publish()
 
     # --- Ablauf (Arbeits-Thread) ----------------------------------------------------
@@ -108,7 +154,8 @@ class RobotProgram:
             for part in (Motors, Ultrasonic, ColorSensor):
                 self._parts.append(part())
             motors, us, color = self._parts
-            self.robot = RealRobot(motors, us, color, on_change=self.publish)
+            self.robot = RealRobot(motors, us, color, on_change=self.publish, clock=Clock())
+            self.rec.attach(self.robot)
             self.buttons = Buttons(self.on_button)
         except Exception as exc:
             self.error = f"{type(exc).__name__}: {exc}"
@@ -122,47 +169,25 @@ class RobotProgram:
         return True
 
     def _run(self) -> bool:
-        """Ein Wettkampflauf. True = mit K2 abgebrochen."""
+        """Ein Wettkampflauf mit Aufzeichnung. True = mit K2 abgebrochen."""
         robot = self.robot
-        robot.reset()
-        self.explorer = Explorer(robot, red_mode=self.red_mode, on_update=self._explorer_update)
-        robot.start_clock()
-        self.status = "running"
-        resume = stopped = False
-        while True:
-            try:
-                if resume:
-                    self.explorer.resume()
-                else:
-                    self.explorer.run()
-                break
-            except LackOfProgress:
-                robot.motors.stop()
-                self.status = "lop"
-                self.explorer.mode = "Lack of Progress"
-                robot.set_action("wartet auf K3", "Roboter auf den letzten Checkpoint setzen")
-                self.publish(force=True)
-                if self.wait_for("lop", "stop") == "stop":
-                    stopped = True
-                    break
-                robot.clear_interrupt()
-                self.explorer.lack_of_progress()
-                self.status = "running"
-                resume = True
-            except RunStopped:
-                stopped = True
-                break
-            except TimeUp:
-                self.explorer.mode = "Zeit abgelaufen"
-                break
-            except Exception:
-                log.exception("Fehler im Lauf")
-                self.explorer.mode = "Fehler, siehe journalctl -u robocup-robot"
-                break
-        robot.motors.stop()
-        robot.clear_interrupt()
-        self.status = "finished"
+        self.explorer = Explorer(robot, red_mode=self.red_mode, on_update=self._explorer_update,
+                                 trace=self.rec.calc)
+        self.rec.start_run(robot, self.red_mode)
+        stopped = False
+        try:
+            stopped = competition(robot, self.explorer, self._wait_lop, self._set_status)
+        finally:
+            self.status = "finished"
+            self.rec.stop(mode=self.explorer.mode, stopped=stopped, visited=len(self.explorer.maze.visited))
         return stopped
+
+    def _wait_lop(self) -> str:
+        return self.rec.flow("lop_wait", self.wait_for("lop", "stop"))
+
+    def _set_status(self, status: str):
+        self.status = status
+        self.publish(force=True)
 
     def _explorer_update(self):
         # Der Explorer meldet sich nur zwischen zwei Aktionen: Bewegungsanzeige ist übernommen.
@@ -182,6 +207,7 @@ class RobotProgram:
         self.closing = True
         if self.robot:
             self.robot.interrupt("stop")
+            self.rec.closed.wait(1.0)       # laufende Aufzeichnung sauber abschließen
             time.sleep(0.1)
         self._close_parts()
         if self.buttons:
@@ -203,7 +229,10 @@ class RobotProgram:
         if not force and now - self._publish_t < config.ROBOT_PUBLISH_S:
             return
         self._publish_t = now
-        data = json.dumps(self.state_msg())
+        with self.rec.paused():             # Akku, Motorleistung, Uhr für die Anzeige: nicht Teil des Laufs
+            msg = self.state_msg()
+        self.rec.state(msg)
+        data = json.dumps(msg)
         self.loop.call_soon_threadsafe(self._send, data)
 
     def state_msg(self) -> dict:

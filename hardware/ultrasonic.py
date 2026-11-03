@@ -54,6 +54,7 @@ class Ultrasonic:
             self.echos[side] = Echo(self.chip, pins["echo"])
         self._last_ping = 0.0
         self.last: dict[str, float | None] = {side: None for side in SIDES}   # letzte Messung je Sensor
+        self.last_echo_ns: int | None = None    # Pulsbreite der letzten Messung (für die Aufzeichnung)
 
     def ready(self) -> bool:
         """Darf jetzt ohne Warten gemessen werden?"""
@@ -73,7 +74,9 @@ class Ultrasonic:
             pass
         lgpio.gpio_write(self.chip, trigger, 0)
         cm = None
+        self.last_echo_ns = None
         if echo.wait(config.US_ECHO_TIMEOUT_S):
+            self.last_echo_ns = echo.width_ns
             cm = echo.width_ns / 1e9 * config.SPEED_OF_SOUND_M_S / 2 * 100
             if cm > config.US_MAX_DISTANCE_CM:
                 cm = None
