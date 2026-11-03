@@ -17,7 +17,9 @@ from aiohttp import WSMsgType, web
 import config
 from navigation.explorer import Explorer
 from navigation.maze_map import Dir
-from simulation.sim_robot import SimController, SimRobot, SimStopped, SimWorld, list_mazes
+from simulation.maze_generator import generate
+from simulation.sim_robot import (MAZES_DIR, SimController, SimRobot, SimStopped, SimWorld,
+                                  TimeUp, list_mazes)
 
 WEB_DIR = Path(__file__).resolve().parent
 log = logging.getLogger("web")
@@ -28,21 +30,30 @@ class SimSession:
         self.loop = loop
         self.queues: set[asyncio.Queue] = set()   # eine Warteschlange pro Browser
         self.speed = 5.0
+        self.red_mode = config.RED_MODE
         self.thread: threading.Thread | None = None
         self.controller: SimController | None = None
         self.generation = 0      # verhindert, dass ein alter Sim-Thread noch Daten schickt
         self.last_state: dict | None = None
-        self.finished = False
-        self.load(list_mazes()[0])
+        self.notes: list[str] = []
+        self.generate(dict(config.GENERATOR_DEFAULTS))
 
     # --- Steuerung (läuft im Event-Loop) --------------------------------------
 
     def handle(self, msg: dict):
         cmd = msg.get("cmd")
         if cmd == "load" and msg.get("maze") in list_mazes():
-            self.load(msg["maze"])
+            name = msg["maze"]
+            self.load(json.loads((MAZES_DIR / f"{name}.json").read_text()), name, saved=True)
+        elif cmd == "generate":
+            self.generate(msg)
+        elif cmd == "save":
+            self.save()
         elif cmd == "reset":
-            self.load(self.name)
+            self.load(self.data, self.name, self.saved)
+        elif cmd == "red_mode" and msg.get("value") in config.RED_MODES and self.thread is None:
+            self.red_mode = msg["value"]
+            self._new_run()
         elif cmd == "start" and not self.finished:
             self._ensure_thread()
             self.controller.start()
@@ -56,20 +67,51 @@ class SimSession:
             self.controller.set_speed(self.speed)
         self.send_all(self.control_msg())
 
-    def load(self, name: str):
+    def generate(self, params: dict):
+        def number(key: str, low: int, high: int) -> int:
+            value = int(params.get(key, config.GENERATOR_DEFAULTS.get(key, low)))
+            return min(high, max(low, value))
+
+        size = config.GENERATOR_MAX_SIZE
+        seed = params.get("seed")
+        data, warnings = generate(
+            number("width", 2, size), number("height", 2, size),
+            black=number("black", 0, 20), blue=number("blue", 0, 20),
+            silver=number("silver", 0, 20), zones=number("zones", 0, 3),
+            seed=int(seed) if seed not in (None, "") else None)
+        name = f"zufall_{data['width']}x{data['height']}_{data['seed']}"
+        self.load(data, name, saved=False, notes=warnings)
+
+    def save(self):
+        path = MAZES_DIR / f"{self.name}.json"
+        path.write_text(json.dumps(self.data, indent=1, ensure_ascii=False) + "\n")
+        self.saved = True
+        self.notes = [f"Gespeichert als simulation/mazes/{path.name}"]
+        self.send_all(self.world_msg())
+
+    def load(self, data: dict, name: str, saved: bool, notes: list[str] | None = None):
+        self._stop()
+        self.data = data
+        self.name = name
+        self.saved = saved
+        self.notes = notes or []
+        self.world = SimWorld.from_dict(data, name)
+        self.reachable = len(self.world.reachable_tiles())
+        self.floating = len(self.world.reachable_tiles() - self.world.linear_tiles())
+        self.send_all(self.world_msg())
+        self._new_run()
+
+    def _new_run(self):
+        """Neuer Lauf auf dem aktuellen Labyrinth (Roboter am Start, Karte leer)."""
         self._stop()
         self.generation += 1
         gen = self.generation
-        self.name = name
         self.finished = False
-        self.world = SimWorld.load(name)
-        self.reachable = len(self.world.reachable_tiles())
         self.controller = SimController(self.speed)
         self.robot = SimRobot(self.world, self.controller, on_action=lambda: self._publish(gen))
-        self.explorer = Explorer(self.robot, on_update=lambda: self._publish(gen))
-        self.send_all(self.world_msg())
+        self.explorer = Explorer(self.robot, red_mode=self.red_mode,
+                                 on_update=lambda: self._publish(gen))
         self._publish(gen)
-        self.send_all(self.control_msg())
 
     def _ensure_thread(self):
         if self.thread is None:
@@ -90,6 +132,9 @@ class SimSession:
             self.explorer.run()
         except SimStopped:
             return
+        except TimeUp:
+            self.explorer.mode = "Zeit abgelaufen"
+            self.explorer.events.append("8:00  Zeit abgelaufen, Spiel beendet")
         except Exception:
             log.exception("Fehler in der Simulation")
             self.explorer.events.append("Fehler in der Simulation, siehe Server-Ausgabe")
@@ -110,19 +155,27 @@ class SimSession:
 
     # --- Nachrichten ----------------------------------------------------------
 
+    def settings_msg(self) -> dict:
+        return {"type": "settings", "field_sizes": config.FIELD_SIZES_2026,
+                "defaults": config.GENERATOR_DEFAULTS, "max_size": config.GENERATOR_MAX_SIZE,
+                "red_modes": config.RED_MODES}
+
     def world_msg(self) -> dict:
         w = self.world
         tiles = [{"x": x, "y": y, "floor": kind.value,
                   "walls": "".join(d.name for d in Dir if w.wall((x, y), d))}
                  for (x, y), kind in w.tiles.items()]
-        return {"type": "world", "name": self.name, "width": w.width, "height": w.height,
-                "start": list(w.start), "tiles": tiles}
+        return {"type": "world", "name": self.name, "saved": self.saved,
+                "seed": self.data.get("seed"), "params": self.data.get("params"),
+                "width": w.width, "height": w.height, "start": list(w.start),
+                "tiles": tiles, "reachable": self.reachable, "floating": self.floating,
+                "notes": self.notes}
 
     def control_msg(self) -> dict:
         c = self.controller
         return {"type": "control", "mazes": list_mazes(), "current": self.name,
                 "running": c.running and not self.finished, "started": self.thread is not None,
-                "finished": self.finished, "speed": self.speed}
+                "finished": self.finished, "speed": self.speed, "red_mode": self.red_mode}
 
     def state_msg(self) -> dict:
         w, r, e = self.world, self.robot, self.explorer
@@ -139,7 +192,7 @@ class SimSession:
             "robot": {"x": r.pos[0], "y": r.pos[1], "dir": int(r.dir)},
             "mode": e.mode,
             "time": r.sim_time,
-            "time_limit": e.time_limit_s,
+            "time_limit": r.time_limit_s,
             "known_tiles": tiles,
             "known_walls": walls,
             "frontier": [list(to_world(p)) for p in e.maze.frontier()],
@@ -150,7 +203,8 @@ class SimSession:
             "last_action": r.last_action,
             "stats": {"visited": len(e.maze.visited), "reachable": self.reachable,
                       "actions": r.actions},
-            "events": list(e.events)[-15:],
+            "score": r.score(),
+            "events": list(e.events)[-30:],
             "anim_ms": min(1500, r.last_duration / self.speed * 1000),
         }
 
@@ -168,7 +222,8 @@ async def websocket(request: web.Request) -> web.WebSocketResponse:
     await ws.prepare(request)
 
     queue: asyncio.Queue = asyncio.Queue()
-    for msg in (session.world_msg(), session.last_state, session.control_msg()):
+    for msg in (session.settings_msg(), session.world_msg(), session.last_state,
+                session.control_msg()):
         if msg:
             queue.put_nowait(json.dumps(msg))
     session.queues.add(queue)
@@ -220,6 +275,7 @@ def main():
     parser.add_argument("--port", type=int, default=config.WEB_PORT)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
     app = web.Application()
     app.router.add_get("/", static("index.html"))

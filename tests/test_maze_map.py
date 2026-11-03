@@ -41,7 +41,7 @@ class MazeMapTest(unittest.TestCase):
         m = MazeMap()
         m.mark_visited((0, 0), TileType.NORMAL)
         m.set_wall((0, 0), Dir.N, False)
-        m.mark_black((0, 1))
+        m.mark_detected((0, 1), TileType.BLACK)
         self.assertEqual(m.frontier(), set())
 
 

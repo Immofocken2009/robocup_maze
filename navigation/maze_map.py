@@ -37,11 +37,12 @@ class TileType(Enum):
     BLACK = "black"     # Loch: nie befahren
     BLUE = "blue"       # Sumpf: warten
     SILVER = "silver"   # Checkpoint
+    RED = "red"         # Eingang zur Gefahrenzone
 
 
 class MazeMap:
     def __init__(self):
-        self.tiles: dict[Pos, TileType] = {}   # bekannte Kacheln (besucht oder als schwarz erkannt)
+        self.tiles: dict[Pos, TileType] = {}   # bekannte Kacheln (besucht oder von außen erkannt)
         self.visited: set[Pos] = set()
         # Wand zwischen zwei Kacheln: True = Wand, False = offen, fehlt = unbekannt.
         # Schlüssel ist das Kachelpaar (kleinere zuerst), so ist jede Wand nur einmal gespeichert.
@@ -70,8 +71,9 @@ class MazeMap:
         self.visited.add(pos)
         self.tiles[pos] = kind
 
-    def mark_black(self, pos: Pos):
-        self.tiles[pos] = TileType.BLACK
+    def mark_detected(self, pos: Pos, kind: TileType):
+        """Boden erkannt, ohne die Kachel zu befahren (z.B. schwarz oder rot)."""
+        self.tiles[pos] = kind
 
     def kind(self, pos: Pos) -> TileType | None:
         return self.tiles.get(pos)

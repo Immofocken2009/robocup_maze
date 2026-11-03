@@ -1,12 +1,12 @@
 """Simulierter Roboter: setzt navigation/robot_interface.py um, ohne Hardware.
 
-SimWorld      - das echte Labyrinth (aus einer JSON-Datei in simulation/mazes/)
-SimRobot      - fährt in der SimWorld und liefert exakte Sensorwerte
+SimWorld      - das echte Labyrinth (JSON-Datei in simulation/mazes/ oder Zufallslabyrinth)
+SimRobot      - fährt in der SimWorld, liefert exakte Sensorwerte und zählt Punkte wie ein Schiedsrichter
 SimController - Start / Pause / Schritt / Geschwindigkeit (wird von der Webseite gesteuert)
 """
 import json
 import threading
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable
 from pathlib import Path
 
@@ -43,22 +43,25 @@ class SimWorld:
     @classmethod
     def load(cls, name: str) -> "SimWorld":
         path = MAZES_DIR / f"{name}.json"
-        data = json.loads(path.read_text())
+        return cls.from_dict(json.loads(path.read_text()), path.name)
+
+    @classmethod
+    def from_dict(cls, data: dict, label: str = "Labyrinth") -> "SimWorld":
         width, height = data["width"], data["height"]
         tiles: dict[Pos, TileType] = {}
         listed: set[tuple[Pos, Dir]] = set()
         for t in data["tiles"]:
             pos = (t["x"], t["y"])
             if not (0 <= pos[0] < width and 0 <= pos[1] < height):
-                raise ValueError(f"{path.name}: Kachel {pos} liegt außerhalb von {width}x{height}")
+                raise ValueError(f"{label}: Kachel {pos} liegt außerhalb von {width}x{height}")
             if pos in tiles:
-                raise ValueError(f"{path.name}: Kachel {pos} ist doppelt")
+                raise ValueError(f"{label}: Kachel {pos} ist doppelt")
             tiles[pos] = TileType(t.get("floor", "normal"))
             for letter in t.get("walls", ""):
                 listed.add((pos, Dir[letter]))
         start = tuple(data["start"])
         if start not in tiles:
-            raise ValueError(f"{path.name}: Start {start} ist keine Kachel")
+            raise ValueError(f"{label}: Start {start} ist keine Kachel")
         return cls(width, height, tiles, listed, start, Dir[data.get("start_dir", "N")])
 
     def wall(self, pos: Pos, d: Dir) -> bool:
@@ -74,23 +77,48 @@ class SimWorld:
     def to_world_dir(self, d: Dir) -> Dir:
         return Dir((d + self.start_dir) % 4)
 
-    def reachable_tiles(self) -> set[Pos]:
-        """Alle Kacheln, die man vom Start aus erreichen kann, ohne schwarze zu befahren."""
+    def reachable_tiles(self, avoid: frozenset[TileType] = frozenset({TileType.BLACK})) -> set[Pos]:
+        """Alle Kacheln, die man vom Start aus erreichen kann, ohne Kacheln aus `avoid` zu befahren."""
         seen = {self.start}
         todo = deque([self.start])
         while todo:
             pos = todo.popleft()
             for d in Dir:
                 nxt = step(pos, d)
-                if (not self.wall(pos, d) and nxt not in seen
-                        and self.tiles[nxt] is not TileType.BLACK):
+                if not self.wall(pos, d) and nxt not in seen and self.tiles[nxt] not in avoid:
                     seen.add(nxt)
                     todo.append(nxt)
         return seen
 
+    def linear_tiles(self) -> set[Pos]:
+        """Kacheln, die man vom Start aus mit Links- oder Rechtsfolgen erreicht (Regel 3.3.1).
+        Schwarze Kacheln zählen als Wand. Alle anderen erreichbaren Kacheln sind 'floating'."""
+        def blocked(p: Pos, d: Dir) -> bool:
+            return self.wall(p, d) or self.tiles[step(p, d)] is TileType.BLACK
+
+        result = set()
+        for first, second in ((Dir.left, Dir.right), (Dir.right, Dir.left)):
+            for start_dir in Dir:
+                pos, d = self.start, start_dir
+                seen = set()
+                while (pos, d) not in seen:
+                    seen.add((pos, d))
+                    result.add(pos)
+                    for nd in (first(d), d, second(d), d.back()):
+                        if not blocked(pos, nd):
+                            pos, d = step(pos, nd), nd
+                            break
+                    else:
+                        break   # rundum zu
+        return result
+
 
 class SimStopped(Exception):
     """Die Simulation wurde beendet (z.B. anderes Labyrinth geladen)."""
+
+
+class TimeUp(Exception):
+    """Die 8 Minuten sind abgelaufen, der Schiedsrichter beendet das Spiel."""
 
 
 class SimController:
@@ -146,17 +174,25 @@ class SimController:
 
 class SimRobot(RobotInterface):
     def __init__(self, world: SimWorld, controller: SimController | None = None,
-                 on_action: Callable[[], None] | None = None):
+                 on_action: Callable[[], None] | None = None,
+                 start_time_s: float = config.CALIBRATION_TIME_S,
+                 time_limit_s: float = config.TIME_LIMIT_S):
         self.world = world
         self.controller = controller        # None = so schnell wie möglich (Tests)
         self.on_action = on_action or (lambda: None)
+        self.time_limit_s = time_limit_s
         self.pos = world.start
         self.dir = world.start_dir
         self.gyro_deg = 0                   # Drehung seit dem Start, wie ein Gyro sie misst
-        self.sim_time = 0.0
+        self.sim_time = start_time_s
         self.actions = 0
         self.last_action = "–"
         self.last_duration = 0.0
+        # Schiedsrichter
+        self.visits: Counter[Pos] = Counter({world.start: 1})
+        self.lop = 0                        # Lack of Progress
+        self.exit_done = False
+        self._blue_wait_left = 0.0          # so lange muss noch gewartet werden
 
     # --- Sensoren -------------------------------------------------------------
 
@@ -188,18 +224,23 @@ class SimRobot(RobotInterface):
 
     # --- Aktionen -------------------------------------------------------------
 
-    def forward(self) -> MoveResult:
+    def forward(self, avoid: set[TileType]) -> MoveResult:
         self._before()
         if self.world.wall(self.pos, self.dir):
             self._after("Wand vorne", 0.0)
             return MoveResult(MoveStatus.BLOCKED)
         nxt = step(self.pos, self.dir)
-        if self.world.tiles[nxt] is TileType.BLACK:
-            self._after("schwarz erkannt, zurück", config.BLACK_TIME_S)
-            return MoveResult(MoveStatus.BLACK)
+        floor = self.world.tiles[nxt]
+        if floor in avoid:
+            self._after(f"{_FLOOR_NAMES[floor]} erkannt, zurück", config.BACKOFF_TIME_S)
+            return MoveResult(MoveStatus.AVOIDED, floor)
+        if self._blue_wait_left > 0 or floor is TileType.BLACK:
+            self.lop += 1   # Regel 5.5: blau nicht abgewartet oder schwarze Kachel befahren
         self.pos = nxt
+        self.visits[nxt] += 1
+        self._blue_wait_left = config.BLUE_WAIT_S if floor is TileType.BLUE else 0.0
         self._after("vorwärts", config.MOVE_TIME_S)
-        return MoveResult(MoveStatus.OK, self.read_floor())
+        return MoveResult(MoveStatus.OK, floor)
 
     def turn_left(self):
         self._before()
@@ -215,9 +256,17 @@ class SimRobot(RobotInterface):
 
     def wait(self, seconds: float):
         self._before()
+        self._blue_wait_left = max(0.0, self._blue_wait_left - seconds)
         self._after("warten", seconds)
 
+    def signal_exit(self):
+        self._before()
+        self._after("blinken (Exit)", config.EXIT_SIGNAL_S)
+        self.exit_done = self.pos == self.world.start and self.sim_time <= self.time_limit_s
+
     def _before(self):
+        if self.sim_time >= self.time_limit_s:
+            raise TimeUp
         if self.controller:
             self.controller.wait_turn()
 
@@ -229,3 +278,28 @@ class SimRobot(RobotInterface):
         self.on_action()
         if self.controller:
             self.controller.sleep(duration)
+
+    # --- Punkte nach Regelwerk 2026 ---------------------------------------------
+
+    def score(self) -> dict[str, int]:
+        tiles = self.world.tiles
+        checkpoints = sum(1 for p in self.visits if tiles[p] is TileType.SILVER)
+        blue_visits = [n for p, n in self.visits.items() if tiles[p] is TileType.BLUE]
+        blue = sum(max(0, config.POINTS_BLUE - config.POINTS_BLUE_REVISIT * (n - 1))
+                   for n in blue_visits)
+        sbv = sum(1 for n in blue_visits if n == 1)
+        reliability = max(0, sbv * config.BONUS_PER_SBV - self.lop * config.PENALTY_PER_LOP)
+        exit_bonus = sbv * config.BONUS_PER_SBV if self.exit_done else 0
+        result = {
+            "checkpoints": checkpoints * config.POINTS_CHECKPOINT,
+            "blue": blue,
+            "reliability": reliability,
+            "exit": exit_bonus,
+        }
+        result["total"] = sum(result.values())
+        result["lop"] = self.lop
+        return result
+
+
+_FLOOR_NAMES = {TileType.NORMAL: "normal", TileType.BLACK: "schwarz", TileType.BLUE: "blau",
+                TileType.SILVER: "silber", TileType.RED: "rot"}

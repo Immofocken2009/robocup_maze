@@ -44,8 +44,8 @@ def _moves(maze: MazeMap, pos: Pos, heading: Dir, targets: set[Pos]):
         nxt = step(pos, heading)
         if nxt in maze.visited or nxt in targets:
             cost = config.PLAN_COST_FORWARD
-            if maze.kind(nxt) is TileType.BLUE:
-                cost += config.PLAN_COST_BLUE
+            if maze.kind(nxt) is TileType.BLUE:   # blau ist nur bekannt, wenn schon besucht
+                cost += config.PLAN_COST_BLUE_REVISIT
             yield "F", (nxt, heading), cost
     yield "L", (pos, heading.left()), config.PLAN_COST_TURN
     yield "R", (pos, heading.right()), config.PLAN_COST_TURN

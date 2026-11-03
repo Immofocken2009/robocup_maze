@@ -13,13 +13,13 @@ from navigation.maze_map import TileType
 class MoveStatus(Enum):
     OK = "ok"            # eine Kachel vorwärts gefahren
     BLOCKED = "blocked"  # Wand vorne, nicht gefahren
-    BLACK = "black"      # schwarze Kachel erkannt, zurück auf die alte Kachel gefahren
+    AVOIDED = "avoided"  # verbotene Kachel erkannt (z.B. schwarz), zurück auf die alte Kachel gefahren
 
 
 @dataclass
 class MoveResult:
     status: MoveStatus
-    floor: TileType | None = None   # Boden der neuen Kachel (nur bei OK)
+    floor: TileType | None = None   # Boden der neuen Kachel (OK) bzw. der erkannten Kachel (AVOIDED)
 
 
 class RobotInterface(ABC):
@@ -32,8 +32,9 @@ class RobotInterface(ABC):
         """Boden unter dem Farbsensor."""
 
     @abstractmethod
-    def forward(self) -> MoveResult:
-        """Eine Kachel vorwärts fahren."""
+    def forward(self, avoid: set[TileType]) -> MoveResult:
+        """Eine Kachel vorwärts fahren. Erkennt der Farbsensor vorne einen Boden aus
+        `avoid`, hält der Roboter an und fährt zurück (MoveStatus.AVOIDED)."""
 
     @abstractmethod
     def turn_left(self):
@@ -48,5 +49,9 @@ class RobotInterface(ABC):
         """Stehen bleiben (z.B. auf blauen Kacheln)."""
 
     @abstractmethod
+    def signal_exit(self):
+        """Am Start blinken für den Exit-Bonus (config.EXIT_SIGNAL_S)."""
+
+    @abstractmethod
     def time(self) -> float:
-        """Sekunden seit dem Start des Laufs (in der Simulation: Sim-Zeit)."""
+        """Spielzeit in Sekunden, inkl. Kalibrierzeit (in der Simulation: Sim-Zeit)."""

@@ -37,8 +37,8 @@ class PlanPathTest(unittest.TestCase):
         m.set_wall((0, 1), Dir.N, False)    # (0, 1) ist offen, aber unbesucht
         self.assertIsNone(plan_path(m, (0, 0), Dir.N, {(0, 2)}))
 
-    def test_avoids_blue_if_possible(self):
-        # Zwei Wege von (0, 0) nach (2, 0): direkt über blaue (1, 0) oder oben herum.
+    def test_avoids_visited_blue_if_possible(self):
+        # Zwei Wege von (0, 0) nach (2, 0): direkt über die besuchte blaue (1, 0) oder oben herum.
         m = MazeMap()
         for pos in [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)]:
             m.mark_visited(pos, TileType.NORMAL)
@@ -46,12 +46,7 @@ class PlanPathTest(unittest.TestCase):
         for pos, d in [((0, 0), Dir.E), ((1, 0), Dir.E), ((0, 0), Dir.N),
                        ((0, 1), Dir.E), ((1, 1), Dir.E), ((2, 1), Dir.S)]:
             m.set_wall(pos, d, False)
-        old = config.PLAN_COST_BLUE
-        try:
-            config.PLAN_COST_BLUE = 100.0
-            actions = plan_path(m, (0, 0), Dir.E, {(2, 0)})
-        finally:
-            config.PLAN_COST_BLUE = old
+        actions = plan_path(m, (0, 0), Dir.E, {(2, 0)})
         self.assertNotEqual(actions, ["F", "F"])
 
     def test_estimate_time(self):
