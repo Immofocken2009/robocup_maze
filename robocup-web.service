@@ -1,0 +1,17 @@
+# Webseite (Roboter-Ansicht und Simulation) beim Booten starten.
+# Einrichten (einmalig):  sudo systemctl enable --now /home/immo/robocup/robocup-web.service
+[Unit]
+Description=RoboCup Maze Webseite
+After=network.target
+
+[Service]
+User=immo
+WorkingDirectory=/home/immo/robocup
+ExecStart=/usr/bin/python3 -m web.server
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

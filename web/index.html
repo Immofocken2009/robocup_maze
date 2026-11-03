@@ -3,16 +3,99 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Maze-Simulation</title>
+  <title>RoboCup Maze</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="top">
-    <h1>RoboCup Maze Simulation</h1>
+    <h1>RoboCup Maze</h1>
+    <nav class="views" role="tablist" aria-label="Ansicht">
+      <button type="button" role="tab" id="tab-robot" aria-controls="view-robot" aria-selected="true">Roboter</button>
+      <button type="button" role="tab" id="tab-sim" aria-controls="view-sim" aria-selected="false">Simulation</button>
+    </nav>
     <span id="conn" class="conn">Verbinde …</span>
   </header>
 
-  <div class="layout">
+  <!-- Echter Roboter ----------------------------------------------------------->
+  <div id="view-robot" class="layout" role="tabpanel" aria-labelledby="tab-robot">
+    <main class="stage">
+      <div class="toolbar">
+        <p class="status"><b id="rb-status">–</b></p>
+        <label class="inline">Gefahrenzone
+          <select id="rb-red-mode"></select>
+        </label>
+        <div class="clock">
+          <span><b id="rb-time">–</b> von <span id="rb-limit">8:00</span></span>
+          <div class="timebar" aria-hidden="true"><div id="rb-timebar-fill" class="timebar-fill"></div></div>
+        </div>
+      </div>
+
+      <ul id="rb-warnings" class="warnings"></ul>
+
+      <div class="now" aria-live="polite">
+        <span class="muted small">Jetzt</span>
+        <p><span id="rb-action" class="action">–</span> <span id="rb-detail" class="muted"></span></p>
+      </div>
+
+      <canvas id="rb-map" aria-label="Karte des Roboters"></canvas>
+
+      <ul class="legend">
+        <li><i class="sw tile"></i>besucht</li>
+        <li><i class="sw frontier"></i>Grenzkachel</li>
+        <li><i class="ln path"></i>geplanter Weg</li>
+        <li><i class="ln wall"></i>erkannte Wand</li>
+        <li><i class="sw black"></i>schwarz</li>
+        <li><i class="sw blue"></i>blau</li>
+        <li><i class="sw silver"></i>silber</li>
+        <li><i class="sw red"></i>Gefahrenzone</li>
+      </ul>
+    </main>
+
+    <aside class="side">
+      <section>
+        <h2>Erkannt</h2>
+        <dl>
+          <dt>Wand vorne</dt><dd id="rd-front">–</dd>
+          <dt>Wand links</dt><dd id="rd-left">–</dd>
+          <dt>Wand rechts</dt><dd id="rd-right">–</dd>
+          <dt>Boden</dt><dd><i id="rd-swatch" class="sw"></i><span id="rd-floor">–</span></dd>
+          <dt>Position</dt><dd id="rd-pos">–</dd>
+          <dt>Checkpoint</dt><dd id="rd-checkpoint">–</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Sensoren</h2>
+        <dl>
+          <dt>Ultraschall vorne</dt><dd><span id="rs-front">–</span><b id="rw-front" class="tag">Wand</b></dd>
+          <dt>Ultraschall links</dt><dd><span id="rs-left">–</span><b id="rw-left" class="tag">Wand</b></dd>
+          <dt>Ultraschall rechts</dt><dd><span id="rs-right">–</span><b id="rw-right" class="tag">Wand</b></dd>
+          <dt>Farbe</dt><dd><i id="rs-swatch" class="sw"></i><span id="rs-color">–</span></dd>
+          <dt>R G B C</dt><dd id="rs-rgbc">–</dd>
+          <dt>Encoder L / R</dt><dd id="rs-enc">–</dd>
+          <dt>Akku</dt><dd id="rs-battery">–</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Lauf</h2>
+        <dl>
+          <dt>Modus</dt><dd id="rl-mode">–</dd>
+          <dt>Besucht</dt><dd id="rl-visited">–</dd>
+          <dt>Grenzkacheln</dt><dd id="rl-frontier">–</dd>
+        </dl>
+        <p class="muted small keys">K1 Start · K2 Stopp · K3 Lack of Progress</p>
+      </section>
+
+      <section>
+        <h2>Ereignisse</h2>
+        <ol id="rb-events" class="events"></ol>
+      </section>
+    </aside>
+  </div>
+
+  <!-- Simulation ---------------------------------------------------------------->
+  <div id="view-sim" class="layout" role="tabpanel" aria-labelledby="tab-sim" hidden>
     <main class="stage">
       <div class="toolbar">
         <div class="run">
@@ -30,7 +113,7 @@
         </label>
         <div class="clock">
           <span><b id="st-time">0:40</b> von <span id="st-limit">8:00</span></span>
-          <div class="timebar" aria-hidden="true"><div id="timebar-fill"></div></div>
+          <div class="timebar" aria-hidden="true"><div id="timebar-fill" class="timebar-fill"></div></div>
         </div>
       </div>
 

@@ -1,8 +1,10 @@
-"""Webseite für die Simulation.
+"""Webseite: Ansicht „Roboter“ (live vom echten Roboter) und „Simulation“.
 
-Starten (im Projektordner):  python3 -m web.server
-Liefert die Seite aus und schickt jeden Schritt der Simulation live per WebSocket.
+Startet beim Booten (robocup-web.service), von Hand im Projektordner:  python3 -m web.server
+Liefert die Seite aus und schickt jeden Schritt live per WebSocket (/ws) an die Browser.
 Alle verbundenen Browser sehen dieselbe Simulation.
+Das Roboterprogramm (main.py) verbindet sich über /robot (nur vom Pi selbst) und schickt seinen
+Zustand, der unverändert an alle Browser weitergeht.
 """
 import argparse
 import asyncio
@@ -12,7 +14,7 @@ import socket
 import threading
 from pathlib import Path
 
-from aiohttp import WSMsgType, web
+from aiohttp import WSCloseCode, WSMsgType, web
 
 import config
 from navigation.explorer import Explorer
@@ -209,23 +211,46 @@ class SimSession:
         }
 
     def send_all(self, msg: dict):
-        data = json.dumps(msg)
+        self.send_text(json.dumps(msg))
+
+    def send_text(self, data: str):
         for q in self.queues:
             q.put_nowait(data)
+
+
+class RobotRelay:
+    """Verbindung zum Roboterprogramm: Zustand an alle Browser, Befehle zum Roboter."""
+
+    def __init__(self, session: SimSession):
+        self.session = session
+        self.ws: web.WebSocketResponse | None = None
+        self.last: str | None = None    # letzter Zustand des Roboters (für neue Browser)
+
+    def link_msg(self) -> dict:
+        return {"type": "robot_link", "connected": self.ws is not None}
+
+    def handle(self, msg: dict):
+        """Befehl aus dem Browser an den Roboter weitergeben."""
+        if msg.get("cmd") == "robot_red_mode" and msg.get("value") in config.RED_MODES and self.ws is not None:
+            asyncio.ensure_future(self.ws.send_str(json.dumps({"cmd": "red_mode", "value": msg["value"]})))
 
 
 # --- HTTP / WebSocket ---------------------------------------------------------
 
 async def websocket(request: web.Request) -> web.WebSocketResponse:
     session: SimSession = request.app["session"]
+    relay: RobotRelay = request.app["robot"]
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
+    request.app["sockets"].add(ws)
 
     queue: asyncio.Queue = asyncio.Queue()
     for msg in (session.settings_msg(), session.world_msg(), session.last_state,
-                session.control_msg()):
+                session.control_msg(), relay.link_msg()):
         if msg:
             queue.put_nowait(json.dumps(msg))
+    if relay.last:
+        queue.put_nowait(relay.last)
     session.queues.add(queue)
 
     async def writer():
@@ -237,12 +262,44 @@ async def websocket(request: web.Request) -> web.WebSocketResponse:
         async for msg in ws:
             if msg.type == WSMsgType.TEXT:
                 try:
-                    session.handle(json.loads(msg.data))
-                except (ValueError, TypeError):
+                    data = json.loads(msg.data)
+                    if str(data.get("cmd", "")).startswith("robot_"):
+                        relay.handle(data)
+                    else:
+                        session.handle(data)
+                except (ValueError, TypeError, AttributeError):
                     log.warning("Ungültige Nachricht: %s", msg.data)
     finally:
         session.queues.discard(queue)
+        request.app["sockets"].discard(ws)
         writer_task.cancel()
+    return ws
+
+
+async def robot_link(request: web.Request) -> web.WebSocketResponse:
+    """Hier verbindet sich main.py (nur vom Pi selbst erlaubt)."""
+    if request.remote not in ("127.0.0.1", "::1"):
+        raise web.HTTPForbidden(text="Nur für das Roboterprogramm auf dem Pi")
+    relay: RobotRelay = request.app["robot"]
+    ws = web.WebSocketResponse(heartbeat=20)
+    await ws.prepare(request)
+    request.app["sockets"].add(ws)
+    if relay.ws is not None:
+        await relay.ws.close()
+    relay.ws = ws
+    relay.session.send_all(relay.link_msg())
+    log.info("Roboterprogramm verbunden")
+    try:
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                relay.last = msg.data
+                relay.session.send_text(msg.data)
+    finally:
+        request.app["sockets"].discard(ws)
+        if relay.ws is ws:
+            relay.ws = None
+            relay.session.send_all(relay.link_msg())
+            log.info("Roboterprogramm getrennt")
     return ws
 
 
@@ -254,10 +311,14 @@ def static(name: str):
 
 async def on_startup(app: web.Application):
     app["session"] = SimSession(asyncio.get_running_loop())
+    app["robot"] = RobotRelay(app["session"])
+    app["sockets"] = set()
 
 
 async def on_shutdown(app: web.Application):
     app["session"]._stop()
+    for ws in list(app["sockets"]):     # offene Verbindungen schließen, sonst wartet aiohttp
+        await ws.close(code=WSCloseCode.GOING_AWAY)
 
 
 def local_ip() -> str:
@@ -270,7 +331,7 @@ def local_ip() -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Webseite für die Maze-Simulation")
+    parser = argparse.ArgumentParser(description="Webseite: echter Roboter und Simulation")
     parser.add_argument("--host", default=config.WEB_HOST)
     parser.add_argument("--port", type=int, default=config.WEB_PORT)
     args = parser.parse_args()
@@ -282,11 +343,13 @@ def main():
     app.router.add_get("/app.js", static("app.js"))
     app.router.add_get("/style.css", static("style.css"))
     app.router.add_get("/ws", websocket)
+    app.router.add_get("/robot", robot_link)
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
 
-    print(f"Simulation läuft:  http://localhost:{args.port}   (im Netz: http://{local_ip()}:{args.port})")
-    web.run_app(app, host=args.host, port=args.port, print=None)
+    print(f"Webseite läuft:  http://localhost:{args.port}   (im Netz: http://{local_ip()}:{args.port})",
+          flush=True)
+    web.run_app(app, host=args.host, port=args.port, print=None, shutdown_timeout=2)
 
 
 if __name__ == "__main__":

@@ -123,7 +123,7 @@ class RealRobot(RobotInterface):
         self.motion = None
         self.walls = None
         self.floor = None
-        self._set_action("bereit")
+        self.set_action("bereit")
 
     def interrupt(self, reason: str):
         """Von einem anderen Thread: laufende Aktion abbrechen ('stop' oder 'lop')."""
@@ -167,10 +167,10 @@ class RealRobot(RobotInterface):
         self._begin("prüft vorne")
         front = self.us.median("front")
         if front is not None and front < config.WALL_THRESHOLD_CM:
-            self._set_action("Wand vorne", f"{front:.1f} cm")
+            self.set_action("Wand vorne", f"{front:.1f} cm")
             return MoveResult(MoveStatus.BLOCKED)
         target = front_target(front)
-        self._set_action("fährt vorwärts", "nach Abstand vorne" if target is not None else "nach Encoder")
+        self.set_action("fährt vorwärts", "nach Abstand vorne" if target is not None else "nach Encoder")
 
         l0, r0 = self.motors.positions()
         steering = Steering()
@@ -193,7 +193,7 @@ class RealRobot(RobotInterface):
                 if bad >= config.COLOR_STOP_COUNT:
                     self.motors.stop()
                     self.floor = tile
-                    self._set_action(f"{FLOOR_NAMES[tile]} erkannt", "fährt zurück")
+                    self.set_action(f"{FLOOR_NAMES[tile]} erkannt", "fährt zurück")
                     self._drive_cm(-self._travelled(l0, r0))
                     return MoveResult(MoveStatus.AVOIDED, tile)
 
@@ -242,12 +242,12 @@ class RealRobot(RobotInterface):
         if front_wall:
             front = self.us.median("front")
             if front is not None and front < config.WALL_THRESHOLD_CM:
-                self._set_action("richtet sich aus", "an der Wand vorne")
+                self.set_action("richtet sich aus", "an der Wand vorne")
                 if self._push(1):
                     self._drive_cm(-config.ALIGN_BACK_CM)
                 return
         if back_wall:
-            self._set_action("richtet sich aus", "an der Wand hinten")
+            self.set_action("richtet sich aus", "an der Wand hinten")
             if self._push(-1):
                 self._drive_cm(config.ALIGN_BACK_CM)
 
@@ -272,9 +272,9 @@ class RealRobot(RobotInterface):
         """Neue Aktion: Der Explorer hat die letzte schon in seine Position übernommen."""
         self._check()
         self.motion = None
-        self._set_action(action)
+        self.set_action(action)
 
-    def _set_action(self, action: str, detail: str = ""):
+    def set_action(self, action: str, detail: str = ""):
         self.action = action
         self.detail = detail
         self.on_change()

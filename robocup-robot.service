@@ -1,0 +1,18 @@
+# Roboterprogramm (main.py) beim Booten starten, wartet auf K1.
+# Einrichten (einmalig):  sudo systemctl enable --now /home/immo/robocup/robocup-robot.service
+# Arbeitsordner muss beschreibbar sein (lgpio legt dort Dateien an).
+[Unit]
+Description=RoboCup Maze Roboterprogramm
+After=robocup-web.service
+
+[Service]
+User=immo
+WorkingDirectory=/home/immo/robocup
+ExecStart=/usr/bin/python3 main.py
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target
