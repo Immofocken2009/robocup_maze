@@ -21,8 +21,9 @@
   - 1× RGB-Farbsensor nach unten, **vorne mittig, ca. 2 cm hinter der Vorderkante**.
     **Bestätigt:** erkennt die Farbe einer Kachel, bevor der Roboter zur Hälfte drauf ist
     (also bevor sie als „befahren“ zählt, Regel 5.4.4). Schwarz/Rot: erkennen, anhalten, zurück.
-    Vermutlich I2C (z.B. TCS34725), noch nicht bestätigt. I2C ist auf dem Pi derzeit **deaktiviert**.
+    **TCS34725** bestätigt (I2C-Bus 1, Adresse 0x29, ID 0x44). Liefert Werte (Stand 2026-11-03).
   - 1× **PmodGYRO** (Digilent, 3-Achsen-Gyroskop), über **I2C** angeschlossen.
+    **Antwortet noch nicht** (weder 0x68 noch 0x69 auf Bus 1, Stand 2026-11-03).
   - 4er-Tastermodul (GND, K1–K4): K1 = GPIO 17, K2 = GPIO 27, K3 = GPIO 22, K4 = GPIO 23.
     Schaltet gegen GND, interne Pull-ups (gedrückt = LOW). Test: `python3 -m tools.test_buttons`
     **Belegung am 2026-11-03 geprüft** (K1–K4 nacheinander gedrückt, korrekt erkannt, kein Prellen).
@@ -197,10 +198,12 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 ## Offene Fragen an den Projektinhaber
 
-- Farbsensor: Modell bestätigen
+- PmodGYRO wird auf dem I2C-Bus nicht gefunden: Verkabelung prüfen
 - Ultraschall: Modell und Pins (noch nicht verbunden)
 
 ## Bekannte Stolpersteine
+
+- I2C ist eingeschaltet (`dtparam=i2c_arm=on`), Bus 1 = GPIO 2 (SDA) / GPIO 3 (SCL).
 
 - `lgpio` (Backend von `gpiozero` auf dem Pi 5) legt Dateien im aktuellen
   Arbeitsverzeichnis an. Programme müssen aus einem beschreibbaren Ordner gestartet werden.
