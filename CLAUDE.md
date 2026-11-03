@@ -151,7 +151,7 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
     = halbe zuletzt gemessene Gangbreite (bei weiter entfernter Wand plus ganze Kacheln), damit er
     mittig auf seiner Kachel bleibt.
   - **Gegen Ausscheren, wenn eine Wand wegbricht:**
-    1. Breiten-Wächter: weicht links + rechts um mehr als ca. 2 cm von B ab, wird die Seite, die sich
+    1. Breiten-Wächter: weicht links + rechts um mehr als ca. 1 cm von B ab, wird die Seite, die sich
        gerade geändert hat, ignoriert (seitliches Wandern löst das nie aus).
     2. Eine Seite fehlt: Abstand zur verbliebenen Wand = B / 2 (fährt in derselben Spur weiter).
     3. Beide fehlen: Ketten über die Encoder gleich halten.

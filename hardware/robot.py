@@ -51,44 +51,110 @@ def _clamp(value: float, limit: float) -> float:
     return max(-limit, min(limit, value))
 
 
+STEER_TEXT = {"both": "lenkt auf die Mitte zwischen beiden Wänden", "left": "lenkt an der linken Wand",
+              "right": "lenkt an der rechten Wand", "encoder": "geradeaus nach Encoder"}
+
+
 class Steering:
     """PD-Regler für das Geradeausfahren. Ergebnis: Lenkkorrektur in dps, positiv = nach links
-    (rechte Kette schneller)."""
+    (rechte Kette schneller).
 
-    def __init__(self):
+    Grundregel: links und rechts gleich. Die Gangbreite B = links + rechts ändert sich beim
+    seitlichen Wandern nicht, nur wenn eine Wand wegbricht oder auftaucht. Darauf beruht der
+    Breiten-Wächter, der eine Seite ignoriert, sobald sie nicht mehr zu B passt. Fehlt eine Seite,
+    hält er zur anderen B / 2. Eine Seite zählt erst nach zwei zusammenpassenden Messungen.
+    """
+
+    def __init__(self, corridor_cm: float = config.CORRIDOR_CM):
+        self.corridor = corridor_cm     # Gangbreite einer Kachel (links + rechts), wird nachgeführt
+        self.width = corridor_cm        # Gangbreite B, solange beide Seiten zählen
+        self.last: dict[str, float | None] = {"left": None, "right": None}
+        self.trusted = {"left": False, "right": False}
+        self.pending: dict[str, float | None] = {"left": None, "right": None}   # wartet auf Bestätigung
         self.mode: str | None = None    # both, left, right, encoder
         self.samples: deque[tuple[float, float]] = deque()   # (gefahrene cm, Abweichung cm)
         self.enc_ref = 0.0
+        self.corr = 0.0
+        self.corr_at = 0.0
 
-    def update(self, left: float | None, right: float | None, travelled: float,
-               enc: tuple[float, float]) -> float:
-        """left/right: Seitenabstände (cm), travelled: gefahrene cm, enc: Encodergrad seit dem Start."""
-        has_left = left is not None and left < config.WALL_THRESHOLD_CM
-        has_right = right is not None and right < config.WALL_THRESHOLD_CM
-        if has_left and has_right:
-            mode, offset = "both", (left - right) / 2      # positiv = rechts von der Mitte
-        elif has_left:
-            mode, offset = "left", left - config.SIDE_CENTER_CM
-        elif has_right:
-            mode, offset = "right", config.SIDE_CENTER_CM - right
+    def side(self, side: str, cm: float | None, travelled: float, enc: tuple[float, float]) -> float:
+        """Neue Messung einer Seite. travelled: gefahrene cm, enc: Encodergrad seit dem Start."""
+        other = "right" if side == "left" else "left"
+        prev = self.last[side]
+        self.last[side] = cm
+        if cm is None or cm > config.STEER_SIDE_MAX_CM:
+            self.trusted[side] = False
+            self.pending[side] = None
+        elif self.trusted[side]:
+            if self.trusted[other]:
+                diff = cm + self.last[other] - self.width
+                if abs(diff) > config.STEER_WIDTH_JUMP_CM:
+                    self._distrust(side, cm)            # Wand bricht weg oder taucht auf
+                elif abs(diff) < config.STEER_WIDTH_JUMP_CM / 2:
+                    self.width += 0.2 * diff            # langsam nachführen (Wände nicht ganz parallel)
+            elif prev is not None and abs(cm - prev) > config.STEER_WIDTH_JUMP_CM:
+                self._distrust(side, cm)
+        elif self.pending[side] is not None and abs(cm - self.pending[side]) <= config.STEER_STEADY_CM:
+            self.trusted[side] = True                   # zweite passende Messung: zählt wieder
+            self.pending[side] = None
+            if self.trusted[other]:
+                self.width = cm + self.last[other]
         else:
-            mode, offset = "encoder", 0.0
+            self.pending[side] = cm
+        if self.trusted["left"] and self.trusted["right"] and self.width <= config.CORRIDOR_MAX_CM:
+            self.corridor = self.width
+        return self._control(travelled, enc, new_sample=True)
 
-        if mode != self.mode:
+    def hold(self, travelled: float, enc: tuple[float, float]) -> float:
+        """Zwischen zwei Seitenmessungen (ohne Seitenwand wird über die Encoder weiter geregelt)."""
+        return self._control(travelled, enc, new_sample=False)
+
+    def _distrust(self, side: str, cm: float):
+        self.trusted[side] = False
+        self.pending[side] = cm
+
+    def _offset(self) -> tuple[str, float]:
+        """Abweichung von der Sollposition in cm, positiv = zu weit rechts."""
+        left = self.last["left"] if self.trusted["left"] else None
+        right = self.last["right"] if self.trusted["right"] else None
+        half = self.corridor / 2
+        if left is not None and right is not None and left + right <= config.CORRIDOR_MAX_CM:
+            return "both", (left - right) / 2           # Gang: links und rechts gleich
+        if left is not None and (right is None or left <= right):
+            return "left", left - _grid(left, half)     # sonst die nähere bzw. einzige Wand
+        if right is not None:
+            return "right", _grid(right, half) - right
+        return "encoder", 0.0
+
+    def _control(self, travelled: float, enc: tuple[float, float], new_sample: bool) -> float:
+        mode, offset = self._offset()
+        if mode != self.mode:                           # Wechsel: D-Anteil und Encoder neu beginnen
             self.samples.clear()
             self.enc_ref = enc[0] - enc[1]
             self.mode = mode
         if mode == "encoder":
-            return _clamp(config.STEER_ENC_K * (enc[0] - enc[1] - self.enc_ref), config.STEER_MAX_DPS)
+            raw = config.STEER_ENC_K * (enc[0] - enc[1] - self.enc_ref)
+        elif not new_sample:
+            return self.corr
+        else:
+            self.samples.append((travelled, offset))
+            while len(self.samples) > 2 and travelled - self.samples[1][0] >= config.STEER_D_WINDOW_CM:
+                self.samples.popleft()
+            slope = 0.0
+            t0, o0 = self.samples[0]
+            if travelled - t0 >= config.STEER_D_WINDOW_CM / 2:
+                slope = (offset - o0) / (travelled - t0)   # positiv = driftet nach rechts
+            raw = config.STEER_KP * offset + config.STEER_KD * slope
+        # Lenkänderung pro gefahrenem cm begrenzen: kein Ruck, auch nicht bei einer Fehlmessung
+        allowed = config.STEER_SLEW_DPS_PER_CM * max(0.0, travelled - self.corr_at)
+        self.corr += _clamp(_clamp(raw, config.STEER_MAX_DPS) - self.corr, allowed)
+        self.corr_at = travelled
+        return self.corr
 
-        self.samples.append((travelled, offset))
-        while len(self.samples) > 2 and travelled - self.samples[1][0] >= config.STEER_D_WINDOW_CM:
-            self.samples.popleft()
-        slope = 0.0
-        t0, o0 = self.samples[0]
-        if travelled - t0 >= config.STEER_D_WINDOW_CM / 2:
-            slope = (offset - o0) / (travelled - t0)       # positiv = driftet nach rechts
-        return _clamp(config.STEER_KP * offset + config.STEER_KD * slope, config.STEER_MAX_DPS)
+
+def _grid(cm: float, half: float) -> float:
+    """Sollabstand zu einer Wand, die (ganze Kacheln weiter) neben der eigenen Kachel steht."""
+    return half + config.TILE_SIZE_CM * round((cm - half) / config.TILE_SIZE_CM)
 
 
 class RealRobot(RobotInterface):
@@ -108,6 +174,7 @@ class RealRobot(RobotInterface):
         self.walls: dict[str, bool] | None = None   # zuletzt erkannte Wände
         self.floor: TileType | None = None          # zuletzt erkannter Boden
         self.encoders = (0.0, 0.0)
+        self.corridor_cm = config.CORRIDOR_CM   # gemessene Gangbreite, bleibt über die Fahrten erhalten
 
     # --- Steuerung durch main.py ------------------------------------------------
 
@@ -170,14 +237,16 @@ class RealRobot(RobotInterface):
             self.set_action("Wand vorne", f"{front:.1f} cm")
             return MoveResult(MoveStatus.BLOCKED)
         target = front_target(front)
-        self.set_action("fährt vorwärts", "nach Abstand vorne" if target is not None else "nach Encoder")
+        stop_text = "Halt nach Abstand vorne" if target is not None else "Halt nach Encoder"
 
         l0, r0 = self.motors.positions()
-        steering = Steering()
-        sides = {"left": self.us.last["left"], "right": self.us.last["right"]}
+        steering = Steering(self.corridor_cm)
+        for side in ("left", "right"):          # erste Seitenmessung, zählt nach der zweiten
+            steering.side(side, self.us.measure(side), 0.0, (0.0, 0.0))
+        self.set_action("fährt vorwärts", f"{stop_text}, {STEER_TEXT[steering.mode]}")
         front_at, front_travel = front, 0.0
         order = cycle(("front", "left", "front", "right"))
-        corr = steering.update(sides["left"], sides["right"], 0.0, (0.0, 0.0))
+        corr, mode = 0.0, steering.mode
         bad, last_color_t = 0, 0.0
 
         while True:
@@ -206,9 +275,8 @@ class RealRobot(RobotInterface):
                     if cm is not None:
                         front_at, front_travel = cm, travelled
                 else:
-                    sides[side] = cm
                     l, r = self.encoders
-                    corr = steering.update(sides["left"], sides["right"], travelled, (l - l0, r - r0))
+                    corr = steering.side(side, cm, travelled, (l - l0, r - r0))
 
             # Wie weit noch? Abstand vorne, begrenzt durch die Encoder-Strecke
             remaining = config.TILE_SIZE_CM - travelled
@@ -219,15 +287,18 @@ class RealRobot(RobotInterface):
             if remaining <= 0:
                 break
             speed = config.DRIVE_SPEED_DPS if remaining > config.DRIVE_SLOW_CM else config.DRIVE_SLOW_DPS
-            if steering.mode == "encoder":
-                l, r = self.encoders
-                corr = steering.update(None, None, travelled, (l - l0, r - r0))
+            l, r = self.encoders
+            corr = steering.hold(travelled, (l - l0, r - r0))
+            if steering.mode != mode:
+                mode = steering.mode
+                self.detail = f"{stop_text}, {STEER_TEXT[mode]}"
             self.motors.set_dps(speed - corr, speed + corr)
             self.motion = {"forward_cm": round(travelled, 1)}
             self.on_change()
             time.sleep(LOOP_S)
 
         self.motors.stop()
+        self.corridor_cm = steering.corridor
         floor = self._measure_floor()
         return MoveResult(MoveStatus.OK, floor)
 

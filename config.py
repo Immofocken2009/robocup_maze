@@ -39,7 +39,7 @@ US_ECHO_TIMEOUT_S = 0.05    # so lange auf das Echo warten, sonst "kein Echo"
 US_CYCLE_S = 0.08           # Pause zwischen zwei Messungen (Messzyklus RCWL-9610A ~70 ms)
 SPEED_OF_SOUND_M_S = 343.0  # bei ca. 20 °C
 GPIO_CHIP = 0               # gpiochip0 = GPIO-Leiste des Pi 5 (pinctrl-rp1)
-WALL_THRESHOLD_CM = 20.0    # gemessener Abstand kleiner als das = Wand
+WALL_THRESHOLD_CM = 20.0    # Karte: in der Kachelmitte gemessener Abstand kleiner als das = Wand
 US_READINGS = 3             # so viele Messungen pro Sensor, wenn im Stand Wände gemessen werden (Median)
 
 # --- Farbsensor (TCS34725) -----------------------------------------------------
@@ -73,6 +73,13 @@ STEER_KD = 300.0            # Lenkkorrektur (dps) pro cm Abweichung je cm Fahrt 
 STEER_D_WINDOW_CM = 4.0     # Schrägstand über so viele cm Fahrt bestimmen
 STEER_ENC_K = 2.0           # ohne Seitenwand: Lenkkorrektur (dps) pro Encodergrad Unterschied
 STEER_MAX_DPS = 120.0
+STEER_SLEW_DPS_PER_CM = 15.0    # Lenkkorrektur ändert sich pro gefahrenem cm höchstens um so viel
+STEER_WIDTH_JUMP_CM = 1.0       # Breiten-Wächter: links + rechts weicht um mehr von B ab -> Seite ignorieren
+                                # (Fehlalarm ist harmlos: dann kurz nur an einer Wand)
+STEER_STEADY_CM = 1.5           # zurückkehrende Wand: 2 Messungen hintereinander mit höchstens so viel Unterschied
+STEER_SIDE_MAX_CM = 55.0        # Seitenwand weiter weg: zum Lenken zu ungenau
+CORRIDOR_CM = 2 * SIDE_CENTER_CM                    # Startwert Gangbreite B = links + rechts (wird gemessen)
+CORRIDOR_MAX_CM = CORRIDOR_CM + TILE_SIZE_CM / 2    # links + rechts größer = breiter Raum, nähere Wand zählt
 
 # Ausrichten an einer Wand nach dem Drehen
 ALIGN_SPEED_DPS = 150

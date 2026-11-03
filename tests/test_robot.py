@@ -194,15 +194,6 @@ class HelperTest(unittest.TestCase):
         self.assertIsNone(front_target(None))
         self.assertIsNone(front_target(config.FRONT_TRUST_CM + 1))
 
-    def test_steering_signs(self):
-        # näher an der rechten Wand -> nach links lenken (positiv)
-        self.assertGreater(Steering().update(12, 6, 0, (0, 0)), 0)
-        self.assertLess(Steering().update(6, 12, 0, (0, 0)), 0)
-        # ohne Wand: linke Kette ist weiter gefahren -> nach links lenken
-        s = Steering()
-        s.update(None, None, 0, (0, 0))
-        self.assertGreater(s.update(None, None, 5, (110, 100)), 0)
-
     def test_classify_nearest_color(self):
         cal = {"white": (900, 850, 700, 2500), "black": (60, 60, 50, 170),
                "blue": (150, 300, 600, 1000), "silver": (1300, 1250, 1050, 3700),
@@ -211,6 +202,86 @@ class HelperTest(unittest.TestCase):
         self.assertEqual(classify((50, 55, 45, 150), cal), "black")
         self.assertEqual(classify((140, 280, 620, 1050), cal), "blue")
         self.assertEqual(classify((950, 260, 190, 1350), cal), "red")
+
+
+def drive(steering: Steering, left: list, right: list, step_cm: float = 2.0) -> list[float]:
+    """Seitenmessungen abwechselnd links/rechts einspeisen, je step_cm Fahrt dazwischen."""
+    corrections, travelled = [], 0.0
+    for l, r in zip(left, right):
+        for side, cm in (("left", l), ("right", r)):
+            travelled += step_cm
+            corrections.append(steering.side(side, cm, travelled, (0.0, 0.0)))
+    return corrections
+
+
+class SteeringTest(unittest.TestCase):
+    def test_equal_sides_is_center(self):
+        s = Steering()
+        corr = drive(s, [9] * 5, [9] * 5)
+        self.assertEqual(s.mode, "both")
+        self.assertEqual(corr[-1], 0.0)
+
+    def test_steers_towards_equal_sides(self):
+        # näher an der rechten Wand -> nach links lenken (positiv), und umgekehrt
+        self.assertGreater(drive(Steering(), [11] * 4, [7] * 4)[-1], 0)
+        self.assertLess(drive(Steering(), [7] * 4, [11] * 4)[-1], 0)
+
+    def test_lateral_drift_keeps_both_walls(self):
+        """Seitliches Wandern ändert links + rechts nicht: kein Fehlalarm des Wächters."""
+        s = Steering()
+        corr = drive(s, [9, 9, 8.5, 8, 7.5, 7], [9, 9, 9.5, 10, 10.5, 11])
+        self.assertEqual(s.mode, "both")
+        self.assertLess(corr[-1], 0)      # zu weit links -> nach rechts lenken
+
+    def test_wall_breaking_away_does_not_swerve(self):
+        """Links endet die Wand (Wert kriecht erst hoch, dann Sprung), rechts geht weiter."""
+        s = Steering()
+        corr = drive(s, [9, 9, 9, 9.4, 10.6, 13, 39, 39, 39], [9] * 9)
+        self.assertEqual(s.mode, "right")
+        self.assertLess(max(corr), 25)            # nur kurz leicht nach links, kein Ausscheren
+        self.assertAlmostEqual(corr[-1], 0.0, delta=3)   # praktisch gerade (< 0,15 cm daneben)
+
+    def test_returning_wall_needs_two_readings(self):
+        s = Steering()
+        drive(s, [9, 9, 39, 39], [9, 9, 9, 9])
+        self.assertEqual(s.mode, "right")
+        s.side("left", 9.2, 20, (0, 0))
+        self.assertEqual(s.mode, "right")          # eine Messung reicht nicht
+        s.side("left", 9.0, 22, (0, 0))
+        self.assertEqual(s.mode, "both")
+
+    def test_single_wall_keeps_half_width(self):
+        s = Steering()
+        drive(s, [10, 10, 10], [8, 8, 8])          # Gang 18 cm breit
+        corr = drive(s, [None] * 4, [9] * 4)       # links weg: rechts auf 18 / 2 = 9 halten
+        self.assertEqual(s.mode, "right")
+        self.assertAlmostEqual(corr[-1], 0.0, delta=1)
+
+    def test_wide_room_uses_nearer_wall(self):
+        """Foyer: links 9, rechts 39. 'Gleich' wäre die Kachelgrenze, er bleibt auf seiner Kachel."""
+        s = Steering()
+        corr = drive(s, [9] * 4, [39] * 4)
+        self.assertEqual(s.mode, "left")
+        self.assertAlmostEqual(corr[-1], 0.0, delta=1)
+
+    def test_only_far_wall_counts_whole_tiles(self):
+        s = Steering()
+        corr = drive(s, [39] * 4, [None] * 4)
+        self.assertEqual(s.mode, "left")
+        self.assertAlmostEqual(corr[-1], 0.0, delta=1)
+
+    def test_no_wall_keeps_tracks_equal(self):
+        s = Steering()
+        drive(s, [None, None], [None, None])
+        self.assertEqual(s.mode, "encoder")
+        # linke Kette ist weiter gefahren -> nach links lenken
+        self.assertGreater(s.hold(12, (110, 100)), 0)
+
+    def test_correction_changes_gradually(self):
+        s = Steering()
+        corr = drive(s, [15] * 3, [3] * 3)         # 6 cm daneben: voll wären 120 dps
+        steps = [b - a for a, b in zip([0.0] + corr, corr)]
+        self.assertLessEqual(max(steps), config.STEER_SLEW_DPS_PER_CM * 2 + 1e-9)
 
 
 if __name__ == "__main__":
