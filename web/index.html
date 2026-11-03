@@ -12,6 +12,7 @@
     <nav class="views" role="tablist" aria-label="Ansicht">
       <button type="button" role="tab" id="tab-robot" aria-controls="view-robot" aria-selected="true">Roboter</button>
       <button type="button" role="tab" id="tab-sim" aria-controls="view-sim" aria-selected="false">Simulation</button>
+      <button type="button" role="tab" id="tab-log" aria-controls="view-log" aria-selected="false">Aufzeichnung</button>
     </nav>
     <span id="conn" class="conn">Verbinde …</span>
   </header>
@@ -218,6 +219,91 @@
       <section>
         <h2>Ereignisse</h2>
         <ol id="events" class="events"></ol>
+      </section>
+    </aside>
+  </div>
+
+  <!-- Aufzeichnung ------------------------------------------------------------->
+  <div id="view-log" class="layout" role="tabpanel" aria-labelledby="tab-log" hidden>
+    <main class="stage">
+      <div class="toolbar">
+        <label class="inline">Lauf
+          <select id="lg-run"></select>
+        </label>
+        <button type="button" id="lg-refresh">Aktualisieren</button>
+        <a id="lg-download" class="link" href="#">Datei herunterladen</a>
+      </div>
+
+      <p id="lg-empty" class="muted" hidden>Noch keine Aufzeichnung. Jeder Lauf ab K1 wird automatisch
+        aufgezeichnet und erscheint hier.</p>
+
+      <div id="lg-main">
+        <div class="toolbar player">
+          <div class="run">
+            <button type="button" id="lg-prev" title="Zum Anfang der vorigen Aktion">◀ Aktion</button>
+            <button type="button" id="lg-play" class="primary">Abspielen</button>
+            <button type="button" id="lg-next" title="Zum Anfang der nächsten Aktion">Aktion ▶</button>
+          </div>
+          <label class="inline">Tempo
+            <select id="lg-speed">
+              <option value="0.25">¼×</option><option value="1" selected>1×</option><option value="2">2×</option>
+              <option value="5">5×</option><option value="10">10×</option><option value="30">30×</option>
+            </select>
+          </label>
+          <p class="lg-time"><b id="lg-t">–</b> <span class="muted">von <span id="lg-duration">–</span></span>
+            <span class="muted">· Laufzeit</span> <b id="lg-clock">–</b></p>
+        </div>
+        <input type="range" id="lg-slider" class="timeline" min="0" max="0" step="0.01" value="0"
+               aria-label="Zeitpunkt im Lauf (Pfeiltasten: 0,01 s)">
+
+        <div class="now" aria-live="off">
+          <span class="muted small">Zu diesem Zeitpunkt</span>
+          <p><span id="lg-action" class="action">–</span> <span id="lg-detail" class="muted"></span></p>
+        </div>
+
+        <canvas id="lg-map" aria-label="Karte des Roboters zum gewählten Zeitpunkt"></canvas>
+
+        <h2 class="block-title">Verlauf</h2>
+        <canvas id="lg-chart" aria-label="Verlauf: Ultraschall, Abweichung von der Mitte, Motorbefehle. Klicken springt dorthin."></canvas>
+        <ul class="legend">
+          <li><i class="ln p1"></i>vorne</li>
+          <li><i class="ln p2"></i>links</li>
+          <li><i class="ln p3"></i>rechts</li>
+          <li><i class="ln p1"></i>Abweichung (+ = zu weit rechts)</li>
+          <li><i class="ln p2"></i>Motor links</li>
+          <li><i class="ln p3"></i>Motor rechts</li>
+        </ul>
+
+        <section class="block">
+          <h2>Rohdaten um den Zeitpunkt</h2>
+          <p class="muted small">Jeder Eintrag der Aufzeichnung (Hardware-Aufrufe, Rechenschritte, Zustand).
+            Zeilen nach dem Zeitpunkt sind grau. Klick auf eine Zeile springt dorthin.</p>
+          <div class="raw-box"><table id="lg-raw" class="raw"><tbody></tbody></table></div>
+        </section>
+      </div>
+    </main>
+
+    <aside class="side">
+      <section>
+        <h2>Lauf</h2>
+        <dl id="lg-info"></dl>
+        <p class="muted small keys">Nachrechnen auf dem Pi: python3 -m tools.replay_run logs/<span id="lg-file">…</span></p>
+      </section>
+
+      <section>
+        <h2>Eingänge</h2>
+        <dl id="lg-inputs"></dl>
+      </section>
+
+      <section>
+        <h2>Rechnung</h2>
+        <p class="muted small">Letzter Wert jedes Rechenschritts bis zu diesem Zeitpunkt.</p>
+        <div id="lg-calc" class="calc"></div>
+      </section>
+
+      <section>
+        <h2>Ereignisse</h2>
+        <ol id="lg-events" class="events"></ol>
       </section>
     </aside>
   </div>

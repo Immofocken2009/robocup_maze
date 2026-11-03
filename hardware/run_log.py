@@ -6,7 +6,8 @@ Eine Datei pro Lauf: logs/<Datum>_<Uhrzeit>.jsonl.gz, eine JSON-Zeile pro Eintra
          (Uhr, Encoder, Motorbefehle, Ultraschall, Farbsensor-Rohwerte, Taster-Unterbrechung)
   flow   Ablauf von außen: Antwort auf den Taster im Lack of Progress
   calc   ein Rechenschritt des Fahrcodes oder Explorers: what = was, dazu alle Werte
-  state  Zustand wie auf der Webseite (msg)
+  state  Zustand wie auf der Webseite (msg); map und events fehlen, wenn sie sich nicht geändert haben
+         (dann gilt der letzte Zustand, der sie enthält)
   log    Meldung aus logging (Warnungen, Fehler mit Traceback)
   end    Ende des Laufs
 t = Sekunden seit Beginn der Aufzeichnung nach der Uhr des Roboters.
@@ -18,6 +19,7 @@ import gzip
 import json
 import logging
 import os
+import queue
 import subprocess
 import threading
 import time
@@ -50,38 +52,50 @@ def jsonable(value):
 
 
 class RunLog:
-    """Schreibt Einträge als JSON-Zeilen in eine gzip-Datei."""
+    """Schreibt Einträge als JSON-Zeilen in eine gzip-Datei. Packen und Schreiben auf die Karte laufen in
+    einem eigenen Thread, damit die Regelschleife des Fahrcodes nie auf die SD-Karte wartet."""
 
     def __init__(self, path: Path):
         path.parent.mkdir(exist_ok=True)
         self.path = path
+        self._queue: queue.SimpleQueue[str | None] = queue.SimpleQueue()
+        self._closed = False
         self._file = gzip.open(path, "wt", compresslevel=6, encoding="utf-8")
-        self._lock = threading.Lock()
-        self._flushed = time.monotonic()
+        self._writer = threading.Thread(target=self._write_loop, name="run_log", daemon=True)
+        self._writer.start()
 
     def write(self, record: dict):
-        line = json.dumps(record, ensure_ascii=False, separators=(",", ":"), default=str)
-        with self._lock:
-            if self._file is None:
-                return
-            self._file.write(line + "\n")
-            now = time.monotonic()
-            if now - self._flushed >= FLUSH_S:
-                self._flushed = now
+        if not self._closed:
+            self._queue.put(json.dumps(record, ensure_ascii=False, separators=(",", ":"), default=str))
+
+    def _write_loop(self):
+        synced = time.monotonic()
+        while True:
+            try:
+                line = self._queue.get(timeout=FLUSH_S)
+            except queue.Empty:
+                line = ""
+            if line is None:
+                break
+            if line:
+                self._file.write(line + "\n")
+            if time.monotonic() - synced >= FLUSH_S:
+                synced = time.monotonic()
                 self._file.flush()      # gzip-Sync-Punkt: bis hierher auch ohne Dateiende lesbar
                 os.fsync(self._file.buffer.fileobj.fileno())
-
-    def close(self):
-        with self._lock:
-            if self._file is None:
-                return
-            self._file.close()
-            self._file = None
+        self._file.close()
         fd = os.open(self.path, os.O_RDONLY)
         try:
             os.fsync(fd)
         finally:
             os.close(fd)
+
+    def close(self):
+        """Alles Gepufferte schreiben und die Datei abschließen."""
+        if not self._closed:
+            self._closed = True
+            self._queue.put(None)
+            self._writer.join(timeout=10)
 
 
 class Clock:
@@ -115,6 +129,7 @@ class Recorder:
         self._time = time.monotonic     # Roboter-Uhr ohne Aufzeichnung (für t)
         self._t0 = 0.0
         self._handler = _Handler(self)
+        self._last_state: dict[str, str] = {}
         self.closed = threading.Event()
         self.closed.set()
 
@@ -173,6 +188,7 @@ class Recorder:
         self.closed.clear()
         self._thread = threading.get_ident()
         self._t0 = self._time()
+        self._last_state = {}
         self.log.write(jsonable({"k": "head", "version": 1, "file": self.log.path.name,
                                  "date": datetime.now().isoformat(timespec="seconds"),
                                  **_git(), "config": config_values(), **head}))
@@ -224,8 +240,16 @@ class Recorder:
         return result
 
     def state(self, msg: dict):
-        if self.log is not None:
-            self.write("state", msg=msg)
+        if self.log is None:
+            return
+        msg = dict(msg)
+        for key in ("map", "events"):           # groß und selten geändert: nur bei Änderung
+            text = json.dumps(msg.get(key), sort_keys=True)
+            if text == self._last_state.get(key):
+                msg.pop(key, None)
+            else:
+                self._last_state[key] = text
+        self.write("state", msg=msg)
 
 
 def config_values() -> dict:
@@ -235,30 +259,42 @@ def config_values() -> dict:
 def _git() -> dict:
     try:
         run = lambda *args: subprocess.run(["git", *args], cwd=config.PROJECT_DIR, capture_output=True,
-                                           text=True, timeout=2).stdout.strip()
-        changed = [line[3:] for line in run("status", "--porcelain").splitlines()]
-        return {"git": run("rev-parse", "--short", "HEAD"), "git_changed": changed}
+                                           text=True, timeout=2).stdout
+        changed = [line[3:] for line in run("status", "--porcelain").splitlines() if line.strip()]
+        return {"git": run("rev-parse", "--short", "HEAD").strip(), "git_changed": changed}
     except (OSError, subprocess.SubprocessError):
         return {"git": None, "git_changed": []}
 
 
 # --- Lesen ---------------------------------------------------------------------------
 
-def read_run(path: Path) -> tuple[list[dict], bool]:
-    """Alle Einträge einer Aufzeichnung. Zweiter Wert: Datei vollständig (False = mittendrin abgebrochen,
-    z.B. Strom weg; dann ist alles bis zum letzten Schreiben da)."""
-    records: list[dict] = []
+def read_lines(path: Path) -> tuple[list[str], bool]:
+    """Alle vollständigen Zeilen einer Aufzeichnung. Zweiter Wert: Datei bis zum Ende lesbar
+    (False = mittendrin abgebrochen, z.B. Strom weg; dann ist alles bis zum letzten Schreiben da)."""
+    lines: list[str] = []
     complete = True
     try:
         with gzip.open(path, "rt", encoding="utf-8") as f:
             for line in f:
-                try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError:
+                if not line.endswith("\n"):
                     complete = False        # letzte Zeile abgeschnitten
                     break
+                lines.append(line)
     except (EOFError, OSError, zlib.error):
         complete = False
+    return lines, complete
+
+
+def read_run(path: Path) -> tuple[list[dict], bool]:
+    """Alle Einträge einer Aufzeichnung. Zweiter Wert: vollständig (mit Ende-Eintrag)."""
+    lines, complete = read_lines(path)
+    records: list[dict] = []
+    for line in lines:
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            complete = False
+            break
     return records, complete and bool(records) and records[-1].get("k") == "end"
 
 

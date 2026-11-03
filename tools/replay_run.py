@@ -13,6 +13,7 @@ Aufzeichnung geändert hat (Git-Stand steht im Kopf der Aufzeichnung).
 """
 import argparse
 import json
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -298,6 +299,7 @@ def main():
     if not records or records[0].get("k") != "head":
         sys.exit(f"{path}: keine lesbare Aufzeichnung.")
     if args.text:
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)     # z.B. | head: ohne Fehlermeldung beenden
         print_text(records)
         return
 
