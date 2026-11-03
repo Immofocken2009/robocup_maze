@@ -24,11 +24,14 @@
     (also bevor sie als „befahren“ zählt, Regel 5.4.4). Schwarz/Rot: erkennen, anhalten, zurück.
     **TCS34725** bestätigt (I2C-Bus 1, Adresse 0x29, ID 0x44). Liefert Werte (Stand 2026-11-03).
     LED auf dem Board ist an.
-  - 1× **PmodGYRO** (Digilent, 3-Achsen-Gyroskop), über **I2C** angeschlossen.
-    **Defekt** (Stand 2026-11-03). Ersatz: **gleiches Modell (PmodGYRO)** wird nachbestellt. Bis dahin kein Gyro.
-    Anschluss: **J2** (nicht J1!), Reihenfolge SCL, SDA, GND, VCC (Pin 1 = eckiges Pad) →
-    Pi Pin 5 (SCL), Pin 3 (SDA), Pin 6 (GND), Pin 1 (3,3 V). Beide J2-Reihen sind gleich belegt.
-    Erwartet: Adresse 0x69, WHO_AM_I (Register 0x0F) = 0xD3.
+  - **Gyro: MPU-6050** auf dem Board **DEBO SENS 3AXISH** (reichelt, 3-Achsen-Gyro + 3-Achsen-Beschleunigung),
+    **eingeplant statt des PmodGYRO** (entschieden 2026-11-03). **Noch nicht angeschlossen, Code noch nicht
+    umgesetzt** (siehe „Gyro MPU-6050 – NOCH UMZUSETZEN“).
+    Anschluss geplant an I2C-Bus 1, parallel zum Farbsensor: VCC → Pin 1 (3,3 V), GND → Pin 6 oder 9,
+    SCL → Pin 5 (GPIO 3), SDA → Pin 3 (GPIO 2); AD0, XDA, XCL, INT frei lassen.
+    Erwartet: Adresse **0x68**, WHO_AM_I (Register 0x75) = 0x68 (Nachbau-Chips melden evtl. anderes).
+    Prüfen: `i2cdetect -y -r 1` muss 0x29 (Farbsensor) und 0x68 zeigen.
+  - Früher: **PmodGYRO** (Digilent) an J2, Adresse 0x69, **defekt**. Wird nicht mehr verwendet.
   - 4er-Tastermodul (GND, K1–K4): K1 = GPIO 17, K2 = GPIO 27, K3 = GPIO 22, K4 = GPIO 23.
     Schaltet gegen GND, interne Pull-ups (gedrückt = LOW). Test: `python3 -m tools.test_buttons`
     **Belegung am 2026-11-03 geprüft** (K1–K4 nacheinander gedrückt, korrekt erkannt, kein Prellen).
@@ -65,6 +68,7 @@ robocup/
 │   ├── buttons.py         #   Taster K1–K4
 │   ├── fan.py             #   Lüfter am Fan-Anschluss, CPU-Temperatur
 │   ├── run_log.py         #   Aufzeichnung eines Laufs (Hardware-Grenze + Rechenwerte), Lesen
+│   ├── gyro.py            #   MPU-6050: Drehrate aus dem FIFO, Nullpunkt, Winkel  (GEPLANT, noch umzusetzen)
 │   └── robot.py           #   echter Roboter: setzt navigation/robot_interface.py um
 ├── navigation/            # reine Logik, kennt keine Hardware
 │   ├── maze_map.py        #   die Karte
@@ -81,7 +85,8 @@ robocup/
 │   ├── index.html
 │   ├── app.js
 │   └── style.css
-├── tools/                 # Testprogramme (Motoren, Sensoren, Farbkalibrierung), replay_run.py (Lauf nachrechnen)
+├── tools/                 # Testprogramme (Motoren, Sensoren, Farbkalibrierung), replay_run.py (Lauf nachrechnen),
+│                          #   test_gyro.py (GEPLANT, noch umzusetzen)
 ├── tests/                 # automatische Tests der Logik (unittest)
 ├── data/                  # Kalibrierwerte
 └── logs/                  # Aufzeichnungen der echten Läufe (ein Lauf = eine .jsonl.gz-Datei, nicht in Git)
@@ -197,7 +202,35 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Ausgleichsgerade geschätzt, wie schräg er am Kachelende steht (was die Lenkung selbst gedreht hat,
   rechnen die Encoder heraus). Am Kachelende dreht er sich um diesen Winkel auf der Stelle gerade
   (ab `HEADING_FIX_MIN_DEG`, höchstens `HEADING_FIX_MAX_DEG`). Eine oder keine Wand: keine Korrektur.
-  Kein Wandkontakt. Später mit dem Ersatz-Gyro genauer.
+  Kein Wandkontakt. **Wird durch das Gyro ersetzt, sobald es umgesetzt ist** (dann nur noch Rückfall ohne Gyro).
+- **Gyro MPU-6050 – NOCH UMZUSETZEN** (Art und Weise entschieden 2026-11-03, Code noch nicht gebaut):
+  - **Dateien:** `hardware/gyro.py` (Treiber) und `tools/test_gyro.py` (Live-Anzeige; findet Achse und Vorzeichen,
+    wenn man den Roboter von Hand dreht; misst den Skalierungsfaktor). Ergebnisse als Werte in `config.py`
+    (Einbaulage = Achse + Vorzeichen, Skalierungsfaktor).
+  - **Bibliothek:** `smbus2` direkt (Register selbst lesen, wie beim Farbsensor), keine pip-Bibliothek.
+  - **Auslesen über den FIFO des Sensors:** Der MPU-6050 misst selbst im festen Takt (vorgesehen 200 Hz, nur die
+    Drehrate der Hochachse, Messbereich ±500 °/s = 65,5 pro °/s) und puffert (1024 Byte, bei 2 Byte je Messung
+    ca. 2,5 s). Der Fahrcode holt bei jeder Abfrage alle neuen Messungen ab und summiert mit exakt bekanntem
+    Zeitabstand zum Winkel. Kein eigener Thread. Muss also mindestens alle ca. 2 s abgefragt werden (auch beim
+    Warten und im Stand); Pufferüberlauf erkennen und melden.
+  - **Skalierung:** mit `tools/test_gyro.py` einmessen: Roboter von Hand genau eine volle Umdrehung drehen (z.B. an
+    einer Kante ausgerichtet), das Programm berechnet den Faktor für `config.py` (Gyros weichen bis ca. ±3 % ab).
+  - **Nullpunkt** (Drehrate im Stillstand): laufend beim Warten auf K1 messen und im Lauf bei jedem Stillstand
+    nachführen (Wände messen, blau warten, ...), wenn die Encoder stehen. Kostet keine Laufzeit, gleicht
+    Temperaturdrift aus.
+  - **Nutzung:**
+    1. **Drehungen auf 90° nach Gyro** statt nach Encoder (behebt den Kettenschlupf beim Drehen).
+    2. **Blickrichtung über den ganzen Lauf** mitführen: jede Drehung zielt auf die nächste volle 90°-Richtung,
+       Fehler summieren sich nicht. Am Kachelende auf die volle Richtung geradedrehen; **ersetzt die Schätzung
+       aus den Seitenwänden** (die bleibt nur als Rückfall ohne Gyro).
+    3. **Geradeaus ohne Seitenwände:** Richtung per Gyro halten statt beide Ketten per Encoder gleich.
+    4. **Später (Rampen):** Neigung über den Beschleunigungssensor erkennen. Nur vorgemerkt.
+  - **Ohne Gyro oder bei Ausfall:** weiterfahren wie bisher (Drehen nach Encoder, Schrägstand aus den
+    Seitenwänden, geradeaus nach Encoder) und Warnung auf der Webseite. K1 startet auch ohne Gyro.
+  - **Nach Lack of Progress:** beim zweiten K3 gilt die aktuelle Gyro-Richtung als genau ausgerichtet (der Roboter
+    wurde von Hand gerade hingestellt). Die Karte bekommt wie bisher die Richtung vom Checkpoint.
+  - **Aufzeichnung:** die FIFO-Abfragen gehören zur Hardware-Grenze; in `hardware/run_log.py` (`Recorder.attach`)
+    mitschreiben und in `tools/replay_run.py` nachbilden, damit das Nachrechnen 1:1 bleibt.
 - **Farbsensor:** Kalibrierwerkzeug in `tools/` misst Weiß/Schwarz/Blau/Silber/Rot auf dem echten
   Boden und speichert nach `data/`. Beim Fahren wird die nächstliegende kalibrierte Farbe gewählt.
 - **Exit-Signal:** wird ignoriert (keine Blinkhardware), der Roboter bleibt am Start einfach stehen.
@@ -338,6 +371,19 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
   alles als Text: `--text`
 
 ## Offene Fragen an den Projektinhaber
+
+Zum Gyro (vor dem Umsetzen klären):
+- Simulation: Gyro in `simulation/sim_hardware.py` nachbilden (Rauschen, Nullpunktdrift, Skalierungsfehler)?
+- Anzeige auf der Webseite (Richtung, Drehrate, Nullpunkt; Roboter-Ansicht und Aufzeichnung)?
+- Woran gilt das Gyro als ausgefallen (keine Antwort, Pufferüberlauf, passt nicht zu den Encodern)?
+- Regelwerte für Drehen und Richtung halten (Abbremsen vor dem Ziel, Toleranz, Verstärkung) in der Fahrphysik einstellen?
+
+## Noch umzusetzen
+
+- [ ] **Gyro MPU-6050** anschließen und umsetzen wie unter „Gyro MPU-6050 – NOCH UMZUSETZEN“ beschrieben:
+  `hardware/gyro.py`, `tools/test_gyro.py` (Achse, Vorzeichen, Skalierung einmessen), Nutzung im Fahrcode
+  (Drehen, Blickrichtung, geradeaus ohne Wände), Nullpunkt nachführen, Rückfall ohne Gyro, Aufzeichnung/Nachrechnen,
+  Tests. Vorher die offenen Fragen oben klären.
 
 
 ## Bekannte Stolpersteine
