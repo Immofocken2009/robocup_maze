@@ -19,6 +19,8 @@
 - Antrieb: große LEGO-Motoren am BrickPi3
 - Sensoren an den GPIOs des Pi:
   - 1× RGB-Farbsensor nach unten, **vorne mittig, ca. 2 cm hinter der Vorderkante**.
+    **Bestätigt:** erkennt die Farbe einer Kachel, bevor der Roboter zur Hälfte drauf ist
+    (also bevor sie als „befahren“ zählt, Regel 5.4.4). Schwarz/Rot: erkennen, anhalten, zurück.
     Vermutlich I2C (z.B. TCS34725), noch nicht bestätigt. I2C ist auf dem Pi derzeit **deaktiviert**.
   - 1× **PmodGYRO** (Digilent, 3-Achsen-Gyroskop), über **I2C** angeschlossen.
   - 3× Ultraschall: vorne, links, rechts. **Noch nicht verbunden**, Modell/Pins offen.
