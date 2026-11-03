@@ -190,6 +190,12 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Schrägstand korrigiert die Lenkung beim nächsten Fahren an den Seitenwänden.
   (Verworfen: Andrücken vorne/hinten; umdrehen und vorne andrücken; Minimum des Abstands vorne
   suchen, weil der breite Schallkegel immer den senkrechten Abstand liefert.)
+- **Schrägstand aus den Seitenwänden** (entschieden 2026-11-03, statt Ausrichten): Beim Fahren mit zwei
+  Wänden (Gang) ändert sich (links − rechts) / 2 pro gefahrenem cm um den Schrägwinkel. Daraus wird per
+  Ausgleichsgerade geschätzt, wie schräg er am Kachelende steht (was die Lenkung selbst gedreht hat,
+  rechnen die Encoder heraus). Am Kachelende dreht er sich um diesen Winkel auf der Stelle gerade
+  (ab `HEADING_FIX_MIN_DEG`, höchstens `HEADING_FIX_MAX_DEG`). Eine oder keine Wand: keine Korrektur.
+  Kein Wandkontakt. Später mit dem Ersatz-Gyro genauer.
 - **Farbsensor:** Kalibrierwerkzeug in `tools/` misst Weiß/Schwarz/Blau/Silber/Rot auf dem echten
   Boden und speichert nach `data/`. Beim Fahren wird die nächstliegende kalibrierte Farbe gewählt.
 - **Exit-Signal:** wird ignoriert (keine Blinkhardware), der Roboter bleibt am Start einfach stehen.
