@@ -39,7 +39,8 @@
     **Messung mit `lgpio`** (nicht `gpiozero.DistanceSensor`, das hängt ohne Echo): Sensoren nacheinander,
     Echo-Flanken mit Kernel-Zeitstempel, Timeout 50 ms = kein Echo. Test: `python3 -m tools.test_ultrasonic`
     Stand 2026-11-03: **vorne** misst (stabil ±0,5 cm), **links** geprüft (3–68 cm, folgt der Hand,
-    ~2 % ohne Echo, vereinzelte Ausreißer), **rechts** noch nicht angeschlossen.
+    ~2 % ohne Echo, vereinzelte Ausreißer), **rechts** geprüft (14–66 cm, ~4 % ohne Echo;
+    Nahbereich < 14 cm noch nicht getestet).
 - Kamera vorhanden, Nutzung noch offen
 - Sprache: Python
 
