@@ -16,12 +16,14 @@
 
 - Raspberry Pi 5, Debian 13 (trixie), Python 3.13
 - BrickPi3 (SPI, `/dev/spidev0.1`, belegt GPIO 7–11), Bibliothek `brickpi3` ist installiert
-- Antrieb: große LEGO-Motoren am BrickPi3
+- Antrieb: große LEGO-Motoren am BrickPi3, **2 Ketten**, angetrieben am **vorderen Kettenende**
+  (dort sitzt der Motor). Ports: **A = links, D = rechts**. Länge/Breite/Kettenabstand noch messen.
 - Sensoren an den GPIOs des Pi:
   - 1× RGB-Farbsensor nach unten, **vorne mittig, ca. 2 cm hinter der Vorderkante**.
     **Bestätigt:** erkennt die Farbe einer Kachel, bevor der Roboter zur Hälfte drauf ist
     (also bevor sie als „befahren“ zählt, Regel 5.4.4). Schwarz/Rot: erkennen, anhalten, zurück.
     **TCS34725** bestätigt (I2C-Bus 1, Adresse 0x29, ID 0x44). Liefert Werte (Stand 2026-11-03).
+    LED auf dem Board ist an.
   - 1× **PmodGYRO** (Digilent, 3-Achsen-Gyroskop), über **I2C** angeschlossen.
     **Defekt** (Stand 2026-11-03). Ersatz: **gleiches Modell (PmodGYRO)** wird nachbestellt. Bis dahin kein Gyro.
     Anschluss: **J2** (nicht J1!), Reihenfolge SCL, SDA, GND, VCC (Pin 1 = eckiges Pad) →
@@ -41,6 +43,8 @@
     Stand 2026-11-03: **vorne** misst (stabil ±0,5 cm), **links** geprüft (3–68 cm, folgt der Hand,
     ~2 % ohne Echo, vereinzelte Ausreißer), **rechts** geprüft (14–66 cm, ~4 % ohne Echo;
     Nahbereich < 14 cm noch nicht getestet).
+    **Einbau:** vorne mittig, 3 cm hinter der Vorderkante; links und rechts in der Längsmitte,
+    je 2 cm von der Seitenkante nach innen.
 - Kamera vorhanden, Nutzung noch offen
 - Sprache: Python
 
@@ -50,11 +54,15 @@
 robocup/
 ├── CLAUDE.md
 ├── config.py              # alle Einstellungen: Pins, Maße, Schwellwerte, Zeiten
-├── main.py                # startet den Wettkampflauf
+├── main.py                # Roboterprogramm: wartet auf K1, fährt den Wettkampflauf
+├── robocup-web.service    # systemd: Webseite beim Booten starten
+├── robocup-robot.service  # systemd: main.py beim Booten starten
 ├── hardware/              # spricht direkt mit der Hardware
 │   ├── motors.py          #   BrickPi3: fahren, drehen
 │   ├── ultrasonic.py      #   3× Ultraschall
-│   └── color_sensor.py    #   Farbsensor unten
+│   ├── color_sensor.py    #   Farbsensor unten
+│   ├── buttons.py         #   Taster K1–K4
+│   └── robot.py           #   echter Roboter: setzt navigation/robot_interface.py um
 ├── navigation/            # reine Logik, kennt keine Hardware
 │   ├── maze_map.py        #   die Karte
 │   ├── pathfinding.py     #   Wegplanung
@@ -130,6 +138,38 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - Die Simulation arbeitet kachelweise (eine Aktion = eine Kachel bzw. eine 90°-Drehung).
   Simulierte Ultraschallwerte = Abstand von der Sensorposition (Robotermaße in `config.py`) bis zur nächsten Wand.
 - Alle Browser sehen dieselbe Simulation (gemeinsamer Zustand auf dem Server).
+
+### Echter Roboter (freigegeben 2026-11-03)
+
+- **Bibliotheken:** `brickpi3` (Motoren), `smbus2` (Farbsensor), `lgpio` (Ultraschall), `gpiozero` (Taster).
+- **Geradeaus:** PD-Regler. Zwei Seitenwände: Mitte halten. Eine Wand: Sollabstand zu ihr halten.
+  Keine Wand: beide Ketten über die Encoder gleich halten. Der D-Anteil nutzt die Änderung des
+  Seitenabstands pro gefahrenem cm (erkennt Schrägstand).
+- **Kachelende nach Abstand:** Ist vorne eine Wand in Reichweite (auch mehrere Kacheln entfernt),
+  wird angehalten, wenn der Abstand vorne zur Kachelmitte passt (zwischen zwei Messungen mit Encoder
+  weitergerechnet). Ohne Wand in Reichweite: nach Encoder-Strecke. Encoder begrenzt Ausreißer.
+- **Drehen:** über die Encoder, danach **an den Wänden ausrichten**:
+  Wand vorne → langsam dagegen fahren, bis die Ketten stehen, dann zurück auf Kachelmitte.
+  Sonst Wand hinten (laut Karte) → rückwärts dagegen, dann vor auf Kachelmitte.
+  (Verworfen: Minimum des Abstands vorne suchen. Der breite Schallkegel liefert immer den
+  senkrechten Abstand, Schrägstand ist im Stand nicht messbar.)
+- **Farbsensor:** Kalibrierwerkzeug in `tools/` misst Weiß/Schwarz/Blau/Silber/Rot auf dem echten
+  Boden und speichert nach `data/`. Beim Fahren wird die nächstliegende kalibrierte Farbe gewählt.
+- **Exit-Signal:** wird ignoriert (keine Blinkhardware), der Roboter bleibt am Start einfach stehen.
+- **Ablauf:**
+  - Beim Booten startet `main.py` (systemd) und wartet auf **K1** (Start).
+  - **K2** (Stopp): Lauf abbrechen, Motoren aus, zurück in den Zustand wie nach dem Booten
+    (Karte leer, wartet auf K1). Das Programm selbst läuft weiter.
+  - **K3** (Lack of Progress): Roboter hält an und wartet. Nach dem Umsetzen nochmal **K3** → weiter.
+    Er nimmt an, dass er auf dem letzten besuchten Checkpoint steht (ohne Checkpoint: Start), mit der
+    Blickrichtung, mit der er dort zuletzt angekommen ist. Die Karte bleibt.
+- **Zwei Programme**, beide per systemd beim Booten gestartet:
+  `robocup-web.service` (Webseite, `python3 -m web.server`) und `robocup-robot.service` (`main.py`).
+  `main.py` verbindet sich per **WebSocket** mit `ws://localhost:8000/robot` und schickt jede Änderung.
+  Der Roboter fährt auch, wenn die Webseite nicht läuft, und verbindet sich später neu.
+- **Webseite, Ansicht „Roboter“:** Live-Karte des echten Roboters, aktuelle Aktion, erkannte Dinge
+  (Wände, Boden, Checkpoints), Sensorwerte, Ereignisse. Daneben bleibt die Ansicht „Simulation“.
+- **Gefahrenzone beim echten Roboter:** auf der Webseite vor dem Lauf wählbar, sonst `config.RED_MODE`.
 
 ### Gestaltung der Webseite
 
