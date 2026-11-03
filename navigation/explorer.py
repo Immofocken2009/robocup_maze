@@ -27,6 +27,7 @@ class Explorer:
         self.mode = "bereit"            # bereit, erkunden, heimfahren, Exit-Signal, fertig
         self.planned: list[Pos] = []    # noch abzufahrende Kacheln des aktuellen Plans
         self.last_checkpoint: Pos | None = None
+        self.checkpoint_heading = Dir.N  # Blickrichtung bei der letzten Ankunft am Checkpoint
         self.events: deque[str] = deque(maxlen=50)
 
     # --- Hauptablauf ----------------------------------------------------------
@@ -35,7 +36,28 @@ class Explorer:
         self.mode = "erkunden"
         self._log("Start")
         self._sense_start()
+        self._explore()
 
+    def lack_of_progress(self):
+        """Lack of Progress: Der Roboter steht jetzt auf dem letzten besuchten Checkpoint, mit der
+        Blickrichtung seiner letzten Ankunft dort. Ohne Checkpoint: am Start wie zu Beginn des Laufs.
+        Die Karte bleibt erhalten."""
+        if self.last_checkpoint is not None:
+            self.pos, self.heading = self.last_checkpoint, self.checkpoint_heading
+        else:
+            self.pos, self.heading = START, Dir.N
+        self.planned = []
+        self.mode = "Lack of Progress"
+        self._log(f"Lack of Progress, weiter bei {self.pos}")
+
+    def resume(self):
+        """Nach Lack of Progress weiterfahren."""
+        self.mode = "erkunden"
+        if START not in self.maze.visited:
+            self._sense_start()
+        self._explore()
+
+    def _explore(self):
         while True:
             targets = self._targets()
             if not targets:
@@ -72,6 +94,7 @@ class Explorer:
         self.on_update()
         self.robot.turn_right()
         self.heading = self.heading.right()
+        self._align()
         self._sense_walls()
         self.on_update()
 
@@ -112,6 +135,8 @@ class Explorer:
                 self.heading = self.heading.right()
             elif not self._forward():
                 break
+            if action != "F" and (i + 1 == len(actions) or actions[i + 1] == "F"):
+                self._align()
         self.planned = []
         self.on_update()
 
@@ -138,14 +163,24 @@ class Explorer:
             self.maze.mark_visited(target, floor)
             self._sense_walls()
             if floor is TileType.SILVER:
-                self.last_checkpoint = target
                 self._log(f"Checkpoint bei {target}")
+        if self.maze.kind(target) is TileType.SILVER:
+            self.last_checkpoint = target
+            self.checkpoint_heading = self.heading
         if self.maze.kind(target) is TileType.BLUE:
             self._log(f"Blaue Kachel bei {target}, warte {config.BLUE_WAIT_S:g} s")
             self.robot.wait(config.BLUE_WAIT_S)
         return not is_new
 
     # --- Hilfsfunktionen ------------------------------------------------------
+
+    def _align(self):
+        """Nach einer Drehung an einer bekannten Wand vorne oder hinten gerade stellen."""
+        front = self.maze.wall(self.pos, self.heading) is True
+        back = self.maze.wall(self.pos, self.heading.back()) is True
+        if front or back:
+            self.on_update()
+            self.robot.align(front, back)
 
     def _sense_walls(self):
         """Wände nur eintragen, wenn sie noch unbekannt sind (gegen Messrauschen)."""

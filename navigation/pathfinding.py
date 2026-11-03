@@ -77,11 +77,13 @@ def follow(pos: Pos, heading: Dir, actions: list[str]) -> list[State]:
 def estimate_time(maze: MazeMap, pos: Pos, heading: Dir, actions: list[str]) -> float:
     """Geschätzte Fahrzeit in Sekunden für eine Aktionsliste."""
     total = 0.0
-    for a, (p, _) in zip(actions, follow(pos, heading, actions)[1:]):
+    for i, (a, (p, _)) in enumerate(zip(actions, follow(pos, heading, actions)[1:])):
         if a == "F":
             total += config.MOVE_TIME_S
             if maze.kind(p) is TileType.BLUE:
                 total += config.BLUE_WAIT_S
         else:
             total += config.TURN_TIME_S
+            if i + 1 == len(actions) or actions[i + 1] == "F":
+                total += config.ALIGN_TIME_S    # nach der Drehung ausrichten (höchstens)
     return total

@@ -13,9 +13,19 @@ TILE_SIZE_CM = 30.0
 ROBOT_LENGTH_CM = 18.0    # MESSEN!
 ROBOT_WIDTH_CM = 16.0     # MESSEN!
 
+# Einbau der Sensoren
+US_FRONT_INSET_CM = 3.0   # vorderer Ultraschall: mittig, 3 cm hinter der Vorderkante
+US_SIDE_INSET_CM = 2.0    # seitliche Ultraschall: in der Längsmitte, 2 cm von der Seitenkante nach innen
+COLOR_INSET_CM = 2.0      # Farbsensor: vorne mittig, 2 cm hinter der Vorderkante
+
+# Abstand Sensor–Wand, wenn der Roboter mittig auf der Kachel steht
+FRONT_CENTER_CM = TILE_SIZE_CM / 2 - (ROBOT_LENGTH_CM / 2 - US_FRONT_INSET_CM)
+SIDE_CENTER_CM = TILE_SIZE_CM / 2 - (ROBOT_WIDTH_CM / 2 - US_SIDE_INSET_CM)
+
 # --- Taster (BCM-GPIO-Nummern) -----------------------------------------------
 # 4er-Tastermodul (GND, K1-K4): beim Drücken wird der Pin mit GND verbunden -> interne Pull-ups
 BUTTON_PINS = {"K1": 17, "K2": 27, "K3": 22, "K4": 23}
+BUTTON_FUNCTIONS = {"start": "K1", "stop": "K2", "lop": "K3"}   # K4 frei
 
 # --- Ultraschall -------------------------------------------------------------
 # 3× RCWL-9610A im GPIO-Modus (Trig/Echo wie HC-SR04), Versorgung 3,3 V (BCM-GPIO-Nummern)
@@ -30,6 +40,47 @@ US_CYCLE_S = 0.08           # Pause zwischen zwei Messungen (Messzyklus RCWL-961
 SPEED_OF_SOUND_M_S = 343.0  # bei ca. 20 °C
 GPIO_CHIP = 0               # gpiochip0 = GPIO-Leiste des Pi 5 (pinctrl-rp1)
 WALL_THRESHOLD_CM = 20.0    # gemessener Abstand kleiner als das = Wand
+US_READINGS = 3             # so viele Messungen pro Sensor, wenn im Stand Wände gemessen werden (Median)
+
+# --- Farbsensor (TCS34725) -----------------------------------------------------
+COLOR_I2C_BUS = 1
+COLOR_I2C_ADDRESS = 0x29
+COLOR_INTEGRATION_MS = 24.0     # Messdauer, 2,4 ms Schritte
+COLOR_GAIN = 60                 # 1, 4, 16 oder 60
+COLOR_CALIBRATION_FILE = PROJECT_DIR / "data" / "colors.json"   # tools/calibrate_color.py
+COLOR_NAMES = ("white", "black", "blue", "silver", "red")
+COLOR_STOP_COUNT = 2            # so viele Messungen hintereinander schwarz/rot, bevor angehalten wird
+
+# --- Motoren (BrickPi3) --------------------------------------------------------
+MOTOR_PORTS = {"left": "A", "right": "D"}
+MOTOR_DIRECTION = {"left": 1, "right": 1}   # -1, wenn die Kette bei positiver Drehzahl rückwärts läuft. MESSEN!
+MOTOR_DEG_PER_CM = 30.0     # Encodergrad pro cm Fahrstrecke. MESSEN! (tools.test_motors)
+MOTOR_DEG_PER_90 = 450.0    # Encodergrad je Kette für eine 90°-Drehung auf der Stelle. MESSEN!
+
+DRIVE_SPEED_DPS = 400       # Geradeaus (Grad pro Sekunde am Motor)
+DRIVE_SLOW_DPS = 150        # kurz vor dem Ziel
+DRIVE_SLOW_CM = 5.0         # so viele cm vor dem Ziel langsam fahren
+TURN_SPEED_DPS = 300
+TURN_SLOW_DPS = 100
+TURN_SLOW_DEG = 60.0        # so viele Encodergrad vor dem Ziel langsam drehen
+
+FRONT_TRUST_CM = 100.0      # Wand vorne weiter weg als das: nur nach Encoder fahren
+FORWARD_TOLERANCE_CM = 8.0  # der Abstand vorne darf die Kachelstrecke um höchstens so viel ändern
+
+# PD-Regler beim Geradeausfahren. EINSTELLEN!
+STEER_KP = 20.0             # Lenkkorrektur (dps) pro cm Abweichung von der Sollposition
+STEER_KD = 300.0            # Lenkkorrektur (dps) pro cm Abweichung je cm Fahrt (Schrägstand)
+STEER_D_WINDOW_CM = 4.0     # Schrägstand über so viele cm Fahrt bestimmen
+STEER_ENC_K = 2.0           # ohne Seitenwand: Lenkkorrektur (dps) pro Encodergrad Unterschied
+STEER_MAX_DPS = 120.0
+
+# Ausrichten an einer Wand nach dem Drehen
+ALIGN_SPEED_DPS = 150
+ALIGN_POWER_LIMIT = 40      # % Motorleistung beim Andrücken
+ALIGN_MAX_CM = 14.0         # so weit ohne Wandkontakt gefahren: abbrechen
+ALIGN_STALL_DEG = 3.0       # weniger Bewegung je 0,1 s = Kette steht an der Wand
+ALIGN_PUSH_S = 0.3          # danach noch so lange andrücken
+ALIGN_BACK_CM = TILE_SIZE_CM / 2 - ROBOT_LENGTH_CM / 2   # von der Wand zurück auf Kachelmitte
 
 # --- Regeln (Regelwerk 2026) -------------------------------------------------
 BLUE_WAIT_S = 5.0           # auf blauer Kachel 5 s am Stück stehen (3.2.5)
@@ -58,6 +109,7 @@ PLAN_COST_BLUE_REVISIT = 50.0   # bereits besuchte blaue Kachel erneut befahren:
 MOVE_TIME_S = 2.0           # eine Kachel vorwärts. MESSEN!
 TURN_TIME_S = 1.5           # eine 90°-Drehung. MESSEN!
 BACKOFF_TIME_S = 2.0        # schwarze/rote Kachel erkannt, anhalten und zurück. MESSEN!
+ALIGN_TIME_S = 3.0          # nach einer Drehung an der Wand ausrichten. MESSEN!
 
 # --- Zufallslabyrinth --------------------------------------------------------
 FIELD_SIZES_2026 = [(8, 7), (8, 8), (9, 8), (7, 8), (4, 12)]   # offizielle Felder 2026
@@ -67,3 +119,11 @@ GENERATOR_MAX_SIZE = 16
 # --- Webseite ----------------------------------------------------------------
 WEB_HOST = "0.0.0.0"        # 0.0.0.0 = auch von anderen Geräten im Netz erreichbar
 WEB_PORT = 8000
+
+# --- Roboterprogramm (main.py) -------------------------------------------------
+ROBOT_LINK_URL = f"ws://localhost:{WEB_PORT}/robot"   # dorthin schickt main.py seine Daten
+ROBOT_LINK_RETRY_S = 2.0    # Webseite nicht erreichbar: so oft neu versuchen
+ROBOT_PUBLISH_S = 0.1       # höchstens so oft Daten an die Webseite schicken
+IDLE_SENSOR_S = 0.3         # im Stand die Sensoren so oft lesen (für die Anzeige)
+HARDWARE_RETRY_S = 5.0      # Hardware antwortet nicht: so oft neu versuchen
+BATTERY_LOW_V = 9.0         # darunter Warnung auf der Webseite

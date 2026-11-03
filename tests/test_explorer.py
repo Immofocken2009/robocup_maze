@@ -101,6 +101,61 @@ class ExplorerTest(unittest.TestCase):
         self.assertEqual(robot.pos, world.start)
 
 
+class Interrupted(Exception):
+    """Steht im Test für den Druck auf K3."""
+
+
+class LackOfProgressTest(unittest.TestCase):
+    def run_with_lop(self, world: SimWorld, robot_class) -> tuple[SimRobot, Explorer]:
+        robot = robot_class(world, time_limit_s=NO_LIMIT)
+        explorer = Explorer(robot, time_limit_s=NO_LIMIT)
+        with self.assertRaises(Interrupted):
+            explorer.run()
+        explorer.lack_of_progress()
+        # Der Schiedsrichter setzt den Roboter dorthin, wo der Explorer ihn jetzt vermutet
+        robot.pos = world.to_world(explorer.pos)
+        robot.dir = world.to_world_dir(explorer.heading)
+        explorer.resume()
+        return robot, explorer
+
+    def test_resumes_from_last_checkpoint(self):
+        class CheckpointThenStuck(SimRobot):
+            """Zwei Kacheln nach dem ersten Checkpoint: K3."""
+            after_checkpoint = None
+
+            def forward(self, avoid):
+                if self.after_checkpoint is not None:
+                    self.after_checkpoint += 1
+                    if self.after_checkpoint == 3:
+                        raise Interrupted
+                result = super().forward(avoid)
+                if self.after_checkpoint is None and self.world.tiles[self.pos] is TileType.SILVER:
+                    self.after_checkpoint = 0
+                return result
+
+        world = SimWorld.load("sonderboeden")
+        robot, explorer = self.run_with_lop(world, CheckpointThenStuck)
+        self.assertIs(world.tiles[world.to_world(explorer.last_checkpoint)], TileType.SILVER)
+        self.assertEqual(visited_in_world(world, explorer), world.reachable_tiles())
+        self.assertEqual(robot.pos, world.start)
+        self.assertEqual(explorer.mode, "fertig")
+
+    def test_without_checkpoint_back_to_start(self):
+        class StuckAtOnce(SimRobot):
+            stuck = False
+
+            def forward(self, avoid):
+                if not self.stuck:
+                    self.stuck = True
+                    raise Interrupted
+                return super().forward(avoid)
+
+        world = SimWorld.load("einfach")
+        robot, explorer = self.run_with_lop(world, StuckAtOnce)
+        self.assertEqual(visited_in_world(world, explorer), world.reachable_tiles())
+        self.assertEqual(robot.pos, world.start)
+
+
 class ScoreTest(unittest.TestCase):
     def test_blue_revisit_reduces_points(self):
         world = SimWorld.load("sonderboeden")

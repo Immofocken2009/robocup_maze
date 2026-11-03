@@ -199,9 +199,9 @@ class SimRobot(RobotInterface):
     def distances(self) -> dict[str, float | None]:
         """Ultraschall-Abstände in cm (None = nichts in Reichweite)."""
         return {
-            "front": self._ray(self.dir, config.ROBOT_LENGTH_CM / 2),
-            "left": self._ray(self.dir.left(), config.ROBOT_WIDTH_CM / 2),
-            "right": self._ray(self.dir.right(), config.ROBOT_WIDTH_CM / 2),
+            "front": self._ray(self.dir, config.TILE_SIZE_CM / 2 - config.FRONT_CENTER_CM),
+            "left": self._ray(self.dir.left(), config.TILE_SIZE_CM / 2 - config.SIDE_CENTER_CM),
+            "right": self._ray(self.dir.right(), config.TILE_SIZE_CM / 2 - config.SIDE_CENTER_CM),
         }
 
     def _ray(self, d: Dir, sensor_offset_cm: float) -> float | None:
@@ -253,6 +253,11 @@ class SimRobot(RobotInterface):
         self.dir = self.dir.right()
         self.gyro_deg += 90
         self._after("rechts drehen", config.TURN_TIME_S)
+
+    def align(self, front_wall: bool, back_wall: bool):
+        if front_wall or back_wall:
+            self._before()
+            self._after("ausrichten", config.ALIGN_TIME_S)
 
     def wait(self, seconds: float):
         self._before()

@@ -45,6 +45,10 @@ class RobotInterface(ABC):
         """90° nach rechts drehen."""
 
     @abstractmethod
+    def align(self, front_wall: bool, back_wall: bool):
+        """Nach einer Drehung an einer Wand gerade stellen (laut Karte Wand vorne/hinten)."""
+
+    @abstractmethod
     def wait(self, seconds: float):
         """Stehen bleiben (z.B. auf blauen Kacheln)."""
 
