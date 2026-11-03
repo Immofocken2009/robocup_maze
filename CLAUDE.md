@@ -69,7 +69,8 @@ robocup/
 │   ├── explorer.py        #   Erkundungslogik
 │   └── robot_interface.py #   Schnittstelle Explorer <-> Roboter (Simulation und echter Roboter)
 ├── simulation/            # Erkundung ohne echten Roboter testen
-│   ├── sim_robot.py
+│   ├── sim_robot.py       #   Labyrinth, Steuerung, kachelweiser Roboter (nur für die Tests)
+│   ├── sim_hardware.py    #   Fahrphysik: nachgebildete Ketten, Ultraschall, Farbsensor, Sim-Uhr
 │   ├── maze_generator.py  #   Zufallslabyrinthe nach Regelwerk 2026
 │   └── mazes/             #   Testlabyrinthe als JSON
 ├── web/                   # Webseite (flach)
@@ -129,14 +130,24 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Karte vs. Wirklichkeit (Unbekanntes ausgegraut, Grenzkacheln und geplanter Weg markiert),
   Sensorwerte.
 - Bodentypen: normal, schwarz, blau, silber, rot (Eingang Gefahrenzone). Keine Rampen, keine Opfer.
-- Sensorwerte zunächst **exakt** (Rauschen kommt später).
+- **Fahrphysik mit dem echten Fahrcode** (seit 2026-11-03): Der simulierte Roboter hat eine stufenlose
+  Position und Blickrichtung und fährt mit `hardware/robot.py` (PD-Lenkung, Breiten-Wächter, Halt nach
+  Abstand, Andrücken, Schwarz/Rot erkennen). Nur Motoren, Ultraschall, Farbsensor und Uhr sind in
+  `simulation/sim_hardware.py` nachgebildet. Änderungen am Fahrcode wirken so automatisch in der Simulation.
+  - Ketten: Differentialantrieb, Wandkontakt pro Kette (beim Andrücken stellt er sich gerade).
+  - Ultraschall: Schallkegel (nächster Wandpunkt im Kegel), dadurch kriecht der Wert an Wandkanten hoch wie echt.
+  - **Messrauschen** (Ultraschall) und **Kettenschlupf** auf der Webseite an/aus schaltbar.
+  - Sim-Uhr: `RealRobot` bekommt eine austauschbare Uhr; die Simulation läuft in Sim-Zeit (Tempo einstellbar).
+  - „Schritt“ = eine Aktion des Roboters (Kachel fahren, drehen, ausrichten, messen, warten).
+  - Die Webseite zeigt **nur noch die Fahrphysik**. Der kachelweise `SimRobot` bleibt nur für die
+    automatischen Tests (schnell, viele Zufallsläufe).
 - **8-Minuten-Zeitlimit mit Sim-Zeit:** Jede Aktion kostet eine geschätzte Zeit (Werte in `config.py`),
   der Roboter fährt rechtzeitig heim.
 - Testlabyrinthe als **JSON**: `width`, `height`, `start`, `tiles` mit `x`, `y`, `walls`, `floor`
   (Format siehe unten).
 - Tests mit **unittest** (Standardbibliothek).
-- Die Simulation arbeitet kachelweise (eine Aktion = eine Kachel bzw. eine 90°-Drehung).
-  Simulierte Ultraschallwerte = Abstand von der Sensorposition (Robotermaße in `config.py`) bis zur nächsten Wand.
+- Kachelweiser `SimRobot` (Tests): eine Aktion = eine Kachel bzw. eine 90°-Drehung, Ultraschall =
+  Abstand von der Sensorposition (Robotermaße in `config.py`) bis zur nächsten Wand.
 - Alle Browser sehen dieselbe Simulation (gemeinsamer Zustand auf dem Server).
 
 ### Echter Roboter (freigegeben 2026-11-03)
@@ -217,7 +228,10 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 ### Lauf-Regeln in der Simulation
 
 - **Gefahrenzone:** Verhalten **vor jedem Lauf auf der Webseite wählbar**: zuletzt erkunden / meiden / normal.
-- **Exit:** Am Start **10 s blinken** (Regel 5.6.12). Zählt zur Sim-Zeit und wird beim Heimweg eingeplant.
+- **Exit:** Der Heimweg plant 10 s Exit-Signal ein (Regel 5.6.12). Da der echte Roboter nicht blinkt,
+  gibt es in der Fahrphysik **keinen Exit-Bonus** (der kachelweise Test-`SimRobot` zählt ihn noch).
+- **Schiedsrichter in der Fahrphysik:** Kachel besucht, wenn die Robotermitte darauf ist. Schwarz befahren
+  oder blaue Kachel vor 5 s verlassen = Lack of Progress (wird gezählt, der Lauf geht weiter).
 - **Blau:** Bereits besuchte blaue Kacheln werden bei der Wegplanung **stark gemieden** (2026: −10 Punkte je Wiederholung).
 - **Kalibrieren:** **40 s** der 8 Minuten gelten als verbraucht (Uhr startet bei 0:40).
 - **Punkte nach Regelwerk 2026** werden live angezeigt.
