@@ -19,8 +19,9 @@ US_SIDE_INSET_CM = 2.0    # seitliche Ultraschall: in der Längsmitte, 2 cm von 
 COLOR_INSET_CM = 2.0      # Farbsensor: vorne mittig, 2 cm hinter der Vorderkante
 
 # Abstand Sensor–Wand, wenn der Roboter mittig auf der Kachel steht
-FRONT_CENTER_CM = TILE_SIZE_CM / 2 - (ROBOT_LENGTH_CM / 2 - US_FRONT_INSET_CM)
-SIDE_CENTER_CM = TILE_SIZE_CM / 2 - (ROBOT_WIDTH_CM / 2 - US_SIDE_INSET_CM)
+WALL_THICKNESS_CM = 2.0   # Regel 3.1: Durchgang 28 cm bei 30-cm-Kacheln, Wand ragt 1 cm in jede Kachel
+FRONT_CENTER_CM = (TILE_SIZE_CM - WALL_THICKNESS_CM) / 2 - (ROBOT_LENGTH_CM / 2 - US_FRONT_INSET_CM)
+SIDE_CENTER_CM = (TILE_SIZE_CM - WALL_THICKNESS_CM) / 2 - (ROBOT_WIDTH_CM / 2 - US_SIDE_INSET_CM)
 
 # --- Taster (BCM-GPIO-Nummern) -----------------------------------------------
 # 4er-Tastermodul (GND, K1-K4): beim Drücken wird der Pin mit GND verbunden -> interne Pull-ups
@@ -87,7 +88,7 @@ ALIGN_POWER_LIMIT = 40      # % Motorleistung beim Andrücken
 ALIGN_MAX_CM = 14.0         # so weit ohne Wandkontakt gefahren: abbrechen
 ALIGN_STALL_DEG = 3.0       # weniger Bewegung je 0,1 s = Kette steht an der Wand
 ALIGN_PUSH_S = 0.3          # danach noch so lange andrücken
-ALIGN_BACK_CM = TILE_SIZE_CM / 2 - ROBOT_LENGTH_CM / 2   # von der Wand zurück auf Kachelmitte
+ALIGN_BACK_CM = (TILE_SIZE_CM - WALL_THICKNESS_CM) / 2 - ROBOT_LENGTH_CM / 2   # von der Wand zurück auf Mitte
 
 # --- Regeln (Regelwerk 2026) -------------------------------------------------
 BLUE_WAIT_S = 5.0           # auf blauer Kachel 5 s am Stück stehen (3.2.5)

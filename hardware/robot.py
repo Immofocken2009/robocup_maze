@@ -163,11 +163,12 @@ def _grid(cm: float, half: float) -> float:
 
 class RealRobot(RobotInterface):
     def __init__(self, motors: Motors, ultrasonic: Ultrasonic, color: ColorSensor,
-                 on_change: Callable[[], None] | None = None):
+                 on_change: Callable[[], None] | None = None, clock=time):
         self.motors = motors
         self.us = ultrasonic
         self.color = color
         self.on_change = on_change or (lambda: None)   # nach jeder Änderung (Anzeige, wird gedrosselt)
+        self.clock = clock      # monotonic() und sleep(); die Simulation gibt ihre Sim-Uhr hinein
 
         self._interrupt: str | None = None
         self.started_at: float | None = None
@@ -183,7 +184,7 @@ class RealRobot(RobotInterface):
     # --- Steuerung durch main.py ------------------------------------------------
 
     def start_clock(self):
-        self.started_at = time.monotonic()
+        self.started_at = self.clock.monotonic()
 
     def reset(self):
         """Zustand wie nach dem Einschalten (Motoren aus, Uhr steht)."""
@@ -221,7 +222,7 @@ class RealRobot(RobotInterface):
     def time(self) -> float:
         if self.started_at is None:
             return config.CALIBRATION_TIME_S
-        return config.CALIBRATION_TIME_S + time.monotonic() - self.started_at
+        return config.CALIBRATION_TIME_S + self.clock.monotonic() - self.started_at
 
     def read_walls(self) -> dict[str, bool]:
         self._begin("misst Wände")
@@ -258,7 +259,7 @@ class RealRobot(RobotInterface):
             travelled = self._travelled(l0, r0)
 
             # Boden: schwarz/rot vor der Kachelmitte erkennen
-            now = time.monotonic()
+            now = self.clock.monotonic()
             if now - last_color_t >= self.color.integration_s:
                 last_color_t = now
                 tile = self.color.read_tile()
@@ -299,7 +300,7 @@ class RealRobot(RobotInterface):
             self.motors.set_dps(speed - corr, speed + corr)
             self.motion = {"forward_cm": round(travelled, 1)}
             self.on_change()
-            time.sleep(LOOP_S)
+            self.clock.sleep(LOOP_S)
 
         self.motors.stop()
         self.corridor_cm = steering.corridor
@@ -329,12 +330,12 @@ class RealRobot(RobotInterface):
     def wait(self, seconds: float):
         self._begin("wartet")
         self.motors.stop()
-        end = time.monotonic() + seconds
-        while (left := end - time.monotonic()) > 0:
+        end = self.clock.monotonic() + seconds
+        while (left := end - self.clock.monotonic()) > 0:
             self._check()
             self.detail = f"noch {left:.1f} s"
             self.on_change()
-            time.sleep(0.05)
+            self.clock.sleep(0.05)
 
     def signal_exit(self):
         # Kein Blinken (Entscheidung Projektinhaber): am Start einfach stehen bleiben.
@@ -390,7 +391,7 @@ class RealRobot(RobotInterface):
             self.motors.set_dps(direction * speed, -direction * speed)
             self.motion = {"turn_deg": round(direction * 90 * done / config.MOTOR_DEG_PER_90)}
             self.on_change()
-            time.sleep(LOOP_S)
+            self.clock.sleep(LOOP_S)
         self.motors.stop()
 
     def drive_cm(self, cm: float):
@@ -408,7 +409,7 @@ class RealRobot(RobotInterface):
             corr = _clamp(config.STEER_ENC_K * ((l - l0) - (r - r0)), config.STEER_MAX_DPS)
             self.motors.set_dps(direction * speed - corr, direction * speed + corr)
             self.on_change()
-            time.sleep(LOOP_S)
+            self.clock.sleep(LOOP_S)
         self.motors.stop()
 
     def _push(self, direction: int) -> bool:
@@ -417,18 +418,18 @@ class RealRobot(RobotInterface):
         l0, r0 = self.motors.positions()
         self.motors.set_power_limit(config.ALIGN_POWER_LIMIT)
         try:
-            start = last_t = time.monotonic()
+            start = last_t = self.clock.monotonic()
             last = (l0, r0)
             self.motors.set_dps(direction * config.ALIGN_SPEED_DPS, direction * config.ALIGN_SPEED_DPS)
             while True:
                 self._check()
-                time.sleep(LOOP_S)
+                self.clock.sleep(LOOP_S)
                 moved = direction * self._travelled(l0, r0)
                 if moved > config.ALIGN_MAX_CM:
                     self.motors.stop()
                     self.drive_cm(-direction * moved)
                     return False
-                now = time.monotonic()
+                now = self.clock.monotonic()
                 if now - last_t >= 0.1:
                     l, r = self.encoders
                     stalled = (abs(l - last[0]) < config.ALIGN_STALL_DEG
@@ -436,10 +437,10 @@ class RealRobot(RobotInterface):
                     last, last_t = (l, r), now
                     if stalled and now - start > 0.3:
                         break
-            end = time.monotonic() + config.ALIGN_PUSH_S
-            while time.monotonic() < end:
+            end = self.clock.monotonic() + config.ALIGN_PUSH_S
+            while self.clock.monotonic() < end:
                 self._check()
-                time.sleep(LOOP_S)
+                self.clock.sleep(LOOP_S)
             self.motors.stop()
             return True
         finally:

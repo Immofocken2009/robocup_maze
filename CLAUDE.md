@@ -242,6 +242,7 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 (Stand 2026-03-29), Wettkampffelder: [rescue.rcj.cloud 2026](https://rescue.rcj.cloud/events/2026/RoboCup2026/maze/practice)
 
 - Kachel 30 × 30 cm, Wände ≥ 15 cm hoch, 30 cm lang, auf Kachelkanten; Durchgang 28 cm (3.1, 3.3)
+  → in `config.py` Wanddicke 2 cm (`WALL_THICKNESS_CM`), Sollabstände Sensor–Wand rechnen damit.
 - Schwarz = Loch; „besucht“ (mehr als halber Roboter drauf) = Lack of Progress (3.2.3, 5.4.4, 5.5)
 - Blau: 5 s am Stück stehen, bevor die nächste Kachel besucht wird; sonst LoP (3.2.5, 5.5)
 - Silber = Checkpoint, 10 Punkte (3.2.4, 5.6.11)

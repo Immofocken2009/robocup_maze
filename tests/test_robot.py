@@ -14,10 +14,11 @@ from navigation.robot_interface import MoveStatus
 
 SPEEDUP = 4.0
 TILE = config.TILE_SIZE_CM
+FACE = (TILE - config.WALL_THICKNESS_CM) / 2   # Wandfläche von der Kachelmitte
 
 
 class Body:
-    """Gerade Strecke mit einer Wand vorne (Abstand von der Mitte der Startkachel)."""
+    """Gerade Strecke mit einer Wand vorne (Abstand ihrer Fläche von der Mitte der Startkachel)."""
 
     def __init__(self, wall_cm: float | None, floors: list[TileType] | None = None):
         self.wall_cm = wall_cm
@@ -79,7 +80,7 @@ class FakeUltrasonic:
         if side == "front":
             cm = None
             if self.body.wall_cm is not None:
-                cm = self.body.wall_cm - self.body.x - (TILE / 2 - config.FRONT_CENTER_CM)
+                cm = self.body.wall_cm - self.body.x - (config.ROBOT_LENGTH_CM / 2 - config.US_FRONT_INSET_CM)
                 cm = cm if cm <= config.US_MAX_DISTANCE_CM else None
         else:
             cm = config.SIDE_CENTER_CM
@@ -118,7 +119,7 @@ def make_robot(body: Body) -> RealRobot:
 
 class ForwardTest(unittest.TestCase):
     def test_stops_by_front_distance(self):
-        body = Body(wall_cm=2.5 * TILE)            # Wand am Ende der übernächsten Kachel
+        body = Body(wall_cm=FACE + 2 * TILE)            # Wand am Ende der übernächsten Kachel
         result = make_robot(body).forward(set())
         self.assertIs(result.status, MoveStatus.OK)
         self.assertAlmostEqual(body.x, TILE, delta=1.5)
@@ -130,12 +131,12 @@ class ForwardTest(unittest.TestCase):
 
     def test_front_distance_corrects_position(self):
         """Steht der Roboter 4 cm zu weit hinten, fährt er nach Abstand weiter als 30 cm."""
-        body = Body(wall_cm=1.5 * TILE + 4)
+        body = Body(wall_cm=FACE + TILE + 4)
         make_robot(body).forward(set())
         self.assertAlmostEqual(body.x, TILE + 4, delta=1.5)
 
     def test_wall_ahead_blocks(self):
-        body = Body(wall_cm=TILE / 2)
+        body = Body(wall_cm=FACE)
         result = make_robot(body).forward(set())
         self.assertIs(result.status, MoveStatus.BLOCKED)
         self.assertEqual(body.x, 0.0)
@@ -156,7 +157,7 @@ class ForwardTest(unittest.TestCase):
 
 class AlignTest(unittest.TestCase):
     def test_push_front_then_back_to_center(self):
-        body = Body(wall_cm=TILE / 2)
+        body = Body(wall_cm=FACE)
         make_robot(body).align(front_wall=True, back_wall=False)
         self.assertAlmostEqual(body.x, 0.0, delta=1.5)
 
@@ -214,71 +215,75 @@ def drive(steering: Steering, left: list, right: list, step_cm: float = 2.0) -> 
     return corrections
 
 
+C = config.SIDE_CENTER_CM          # Abstand Sensor–Wand in der Kachelmitte
+FAR = C + TILE                      # Wand eine Kachel weiter
+
+
 class SteeringTest(unittest.TestCase):
     def test_equal_sides_is_center(self):
         s = Steering()
-        corr = drive(s, [9] * 5, [9] * 5)
+        corr = drive(s, [C] * 5, [C] * 5)
         self.assertEqual(s.mode, "both")
         self.assertEqual(corr[-1], 0.0)
 
     def test_steers_towards_equal_sides(self):
         # näher an der rechten Wand -> nach links lenken (positiv), und umgekehrt
-        self.assertGreater(drive(Steering(), [11] * 4, [7] * 4)[-1], 0)
-        self.assertLess(drive(Steering(), [7] * 4, [11] * 4)[-1], 0)
+        self.assertGreater(drive(Steering(), [C + 2] * 4, [C - 2] * 4)[-1], 0)
+        self.assertLess(drive(Steering(), [C - 2] * 4, [C + 2] * 4)[-1], 0)
 
     def test_lateral_drift_keeps_both_walls(self):
         """Seitliches Wandern ändert links + rechts nicht: kein Fehlalarm des Wächters."""
         s = Steering()
-        corr = drive(s, [9, 9, 8.5, 8, 7.5, 7], [9, 9, 9.5, 10, 10.5, 11])
+        corr = drive(s, [C, C, C - .5, C - 1, C - 1.5, C - 2], [C, C, C + .5, C + 1, C + 1.5, C + 2])
         self.assertEqual(s.mode, "both")
         self.assertLess(corr[-1], 0)      # zu weit links -> nach rechts lenken
 
     def test_wall_breaking_away_does_not_swerve(self):
         """Links endet die Wand (Wert kriecht erst hoch, dann Sprung), rechts geht weiter."""
         s = Steering()
-        corr = drive(s, [9, 9, 9, 9.4, 10.6, 13, 39, 39, 39], [9] * 9)
+        corr = drive(s, [C, C, C, C + .4, C + 1.6, C + 4, FAR, FAR, FAR], [C] * 9)
         self.assertEqual(s.mode, "right")
         self.assertLess(max(corr), 25)            # nur kurz leicht nach links, kein Ausscheren
         self.assertAlmostEqual(corr[-1], 0.0, delta=3)   # praktisch gerade (< 0,15 cm daneben)
 
     def test_single_far_wall_breaking_away(self):
-        """Nur links eine Wand, eine Kachel weiter (39 cm), sie bricht weg: kriecht langsam hoch."""
+        """Nur links eine Wand, eine Kachel weiter, sie bricht weg: kriecht langsam hoch."""
         s = Steering()
-        corr = drive(s, [39, 39, 39, 39, 39.3, 40.2, 41.5, None, None], [None] * 9)
+        corr = drive(s, [FAR] * 4 + [FAR + .3, FAR + 1.2, FAR + 2.5, None, None], [None] * 9)
         self.assertEqual(s.mode, "encoder")
         self.assertLess(max(corr), 30)
 
     def test_single_near_wall_breaking_away(self):
         s = Steering()
-        corr = drive(s, [9, 9, 9, 9, 9.4, 10.6, 13, None, None], [None] * 9)
+        corr = drive(s, [C] * 4 + [C + .4, C + 1.6, C + 4, None, None], [None] * 9)
         self.assertLess(max(corr), 15)
 
     def test_returning_wall_needs_two_readings(self):
         s = Steering()
-        drive(s, [9, 9, 39, 39], [9, 9, 9, 9])
+        drive(s, [C, C, FAR, FAR], [C, C, C, C])
         self.assertEqual(s.mode, "right")
-        s.side("left", 9.2, 20, (0, 0))
+        s.side("left", C + .2, 20, (0, 0))
         self.assertEqual(s.mode, "right")          # eine Messung reicht nicht
-        s.side("left", 9.0, 22, (0, 0))
+        s.side("left", C, 22, (0, 0))
         self.assertEqual(s.mode, "both")
 
     def test_single_wall_keeps_half_width(self):
         s = Steering()
-        drive(s, [10, 10, 10], [8, 8, 8])          # Gang 18 cm breit
-        corr = drive(s, [None] * 4, [9] * 4)       # links weg: rechts auf 18 / 2 = 9 halten
+        drive(s, [C + 1] * 3, [C - 1] * 3)         # Gang 2·C breit
+        corr = drive(s, [None] * 4, [C] * 4)       # links weg: rechts auf die halbe Breite halten
         self.assertEqual(s.mode, "right")
         self.assertAlmostEqual(corr[-1], 0.0, delta=1)
 
     def test_wide_room_uses_nearer_wall(self):
-        """Foyer: links 9, rechts 39. 'Gleich' wäre die Kachelgrenze, er bleibt auf seiner Kachel."""
+        """Foyer: rechts eine Kachel weiter offen. 'Gleich' wäre die Kachelgrenze, er bleibt auf seiner Kachel."""
         s = Steering()
-        corr = drive(s, [9] * 4, [39] * 4)
+        corr = drive(s, [C] * 4, [FAR] * 4)
         self.assertEqual(s.mode, "left")
         self.assertAlmostEqual(corr[-1], 0.0, delta=1)
 
     def test_only_far_wall_counts_whole_tiles(self):
         s = Steering()
-        corr = drive(s, [39] * 4, [None] * 4)
+        corr = drive(s, [FAR] * 4, [None] * 4)
         self.assertEqual(s.mode, "left")
         self.assertAlmostEqual(corr[-1], 0.0, delta=1)
 
@@ -291,10 +296,9 @@ class SteeringTest(unittest.TestCase):
 
     def test_correction_changes_gradually(self):
         s = Steering()
-        corr = drive(s, [15] * 3, [3] * 3)         # 6 cm daneben: voll wären 120 dps
+        corr = drive(s, [C + 6] * 3, [C - 6] * 3)  # 6 cm daneben: voll wären 120 dps
         steps = [b - a for a, b in zip([0.0] + corr, corr)]
         self.assertLessEqual(max(steps), config.STEER_SLEW_DPS_PER_CM * 2 + 1e-9)
-
 
 if __name__ == "__main__":
     unittest.main()
