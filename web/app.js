@@ -8,12 +8,15 @@ let ws = null;
 let world = null;     // das echte Labyrinth (kommt einmal pro geladenem Labyrinth)
 let state = null;     // aktueller Stand der Simulation (kommt nach jeder Aktion)
 let control = null;   // läuft / pausiert / fertig, Geschwindigkeit
+let settingsLoaded = false;
 
 let T = 40;           // Pixel pro Kachel
-const PAD = 12;
+const PAD = 10;
 
-const FLOOR_NAMES = { normal: "weiß (normal)", black: "schwarz", blue: "blau", silver: "silber" };
+const FLOOR_NAMES = { normal: "weiß", black: "schwarz", blue: "blau", silver: "silber", red: "rot" };
+const RED_MODE_NAMES = { zuletzt: "zuletzt erkunden", meiden: "meiden", normal: "normal erkunden" };
 const SPEED_MIN = 0.5, SPEED_MAX = 100;
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 // --- Verbindung --------------------------------------------------------------
 
@@ -31,15 +34,18 @@ function send(msg) {
 
 function setConn(ok) {
   const el = $("conn");
-  el.textContent = ok ? "verbunden" : "keine Verbindung, versuche erneut …";
+  el.textContent = ok ? "Verbunden" : "Keine Verbindung zum Pi, versuche erneut";
   el.className = "conn " + (ok ? "ok" : "off");
 }
 
 function handle(msg) {
-  if (msg.type === "world") {
+  if (msg.type === "settings") {
+    applySettings(msg);
+  } else if (msg.type === "world") {
     world = msg;
     state = null;
     anim.to = null;
+    updateWorldInfo();
     resize();
   } else if (msg.type === "state") {
     moveRobot(msg);
@@ -70,7 +76,7 @@ function moveRobot(msg) {
   anim.from = robotPose(performance.now());
   anim.to = { x: r.x, y: r.y, dir: r.dir, angle: anim.to.angle + turn };
   anim.start = performance.now();
-  anim.dur = msg.anim_ms;
+  anim.dur = reducedMotion.matches ? 0 : msg.anim_ms;
 }
 
 function animProgress(now) {
@@ -84,7 +90,6 @@ function robotPose(now) {
   return {
     x: lerp(anim.from.x, anim.to.x),
     y: lerp(anim.from.y, anim.to.y),
-    dir: anim.to.dir,
     angle: lerp(anim.from.angle, anim.to.angle),
   };
 }
@@ -97,16 +102,12 @@ function readColors() {
   const css = getComputedStyle(document.documentElement);
   const v = (name) => css.getPropertyValue(name).trim();
   colors = {
-    floorKnown: v("--floor-known"), floorUnknown: v("--floor-unknown"),
-    wallKnown: v("--wall-known"), wallTruth: v("--wall-truth"),
-    black: v("--tile-black"), blue: v("--tile-blue"), silver: v("--tile-silver"),
-    frontier: v("--frontier"), path: v("--path"),
-    robot: v("--robot"), robotArrow: v("--robot-arrow"), text: v("--muted"),
+    tile: v("--tile"), unknown: v("--unknown"), wall: v("--wall"), truth: v("--truth"),
+    robot: v("--robot"), robotMark: v("--robot-mark"), path: v("--path"),
+    frontier: v("--frontier"), muted: v("--muted"),
+    floors: { normal: v("--tile"), black: v("--black"), blue: v("--blue"),
+              silver: v("--silver"), red: v("--red") },
   };
-}
-
-function floorColor(floor) {
-  return { normal: colors.floorKnown, black: colors.black, blue: colors.blue, silver: colors.silver }[floor];
 }
 
 const px = (x) => PAD + x * T;
@@ -115,10 +116,10 @@ const key = (x, y) => `${x},${y}`;
 
 function resize() {
   if (!world) return;
-  const box = canvas.parentElement;
-  const availW = box.clientWidth - 32;
-  const availH = Math.max(320, window.innerHeight - 120);
-  T = Math.max(20, Math.floor(Math.min(availW / world.width, availH / world.height, 90)));
+  const availW = canvas.parentElement.clientWidth;
+  const availH = Math.max(320, window.innerHeight - 220);
+  T = Math.max(18, Math.floor(Math.min((availW - 2 * PAD) / world.width,
+                                       (availH - 2 * PAD) / world.height, 84)));
   const w = world.width * T + 2 * PAD;
   const h = world.height * T + 2 * PAD;
   const dpr = window.devicePixelRatio || 1;
@@ -147,56 +148,54 @@ function draw(now) {
   const showTruth = $("show-truth").checked;
   const known = new Map((state ? state.known_tiles : []).map((t) => [key(t.x, t.y), t]));
 
-  // Kacheln
+  // Kacheln: bekannte in ihrer Farbe, unbekannte grau (echter Boden blass, wenn eingeblendet)
   for (const t of world.tiles) {
     const k = known.get(key(t.x, t.y));
-    ctx.fillStyle = k ? floorColor(k.floor) : colors.floorUnknown;
+    ctx.fillStyle = k ? colors.floors[k.floor] : colors.unknown;
     ctx.fillRect(px(t.x), py(t.y), T, T);
     if (!k && showTruth && t.floor !== "normal") {
-      ctx.globalAlpha = 0.35;
-      ctx.fillStyle = floorColor(t.floor);
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = colors.floors[t.floor];
       ctx.fillRect(px(t.x), py(t.y), T, T);
       ctx.globalAlpha = 1;
     }
   }
 
-  // Kachelraster
-  ctx.strokeStyle = colors.wallTruth;
-  ctx.globalAlpha = 0.25;
+  // Kachelfugen
+  ctx.strokeStyle = colors.truth;
+  ctx.globalAlpha = 0.3;
   ctx.lineWidth = 1;
   for (const t of world.tiles) ctx.strokeRect(px(t.x) + 0.5, py(t.y) + 0.5, T - 1, T - 1);
   ctx.globalAlpha = 1;
 
-  // Start und Checkpoint
-  ctx.fillStyle = colors.text;
-  ctx.font = `600 ${Math.round(T * 0.32)}px system-ui, sans-serif`;
+  // Start
+  ctx.fillStyle = colors.muted;
+  ctx.font = `600 ${Math.round(T * 0.3)}px system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("S", px(world.start[0]) + T / 2, py(world.start[1]) + T / 2);
-  if (state && state.checkpoint) {
-    const [cx, cy] = state.checkpoint;
-    ctx.fillText("✓", px(cx) + T * 0.8, py(cy) + T * 0.22);
-  }
 
   // Grenzkacheln
   if (state) {
     ctx.strokeStyle = colors.frontier;
-    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 3]);
     for (const [x, y] of state.frontier) ctx.strokeRect(px(x) + 5, py(y) + 5, T - 10, T - 10);
     ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
   }
 
-  // Wände: Wirklichkeit dünn, bekannte dick
+  // Wände: echte dünn, erkannte als Holzwand
   ctx.lineCap = "round";
   if (showTruth) {
-    ctx.strokeStyle = colors.wallTruth;
+    ctx.strokeStyle = colors.truth;
     ctx.lineWidth = 1.5;
     for (const t of world.tiles) for (const d of t.walls) drawWall(t.x, t.y, d);
   }
   if (state) {
-    ctx.strokeStyle = colors.wallKnown;
-    ctx.lineWidth = Math.max(3, T / 10);
+    ctx.strokeStyle = colors.wall;
+    ctx.lineWidth = Math.max(3, T / 9);
     for (const w of state.known_walls) if (w.wall) drawWall(w.x, w.y, w.dir);
   }
 
@@ -206,7 +205,7 @@ function draw(now) {
   if (state && pose && state.planned.length > 1) {
     ctx.strokeStyle = colors.path;
     ctx.fillStyle = colors.path;
-    ctx.lineWidth = Math.max(2, T / 14);
+    ctx.lineWidth = Math.max(2, T / 16);
     ctx.lineJoin = "round";
     ctx.beginPath();
     ctx.moveTo(px(pose.x) + T / 2, py(pose.y) + T / 2);
@@ -214,23 +213,21 @@ function draw(now) {
     ctx.stroke();
     const [ex, ey] = state.planned[state.planned.length - 1];
     ctx.beginPath();
-    ctx.arc(px(ex) + T / 2, py(ey) + T / 2, T * 0.1, 0, Math.PI * 2);
+    ctx.arc(px(ex) + T / 2, py(ey) + T / 2, T * 0.09, 0, Math.PI * 2);
     ctx.fill();
   }
 
   // Roboter
   if (pose) {
-    const cx = px(pose.x) + T / 2;
-    const cy = py(pose.y) + T / 2;
-    const r = T * 0.32;
+    const r = T * 0.3;
     ctx.save();
-    ctx.translate(cx, cy);
+    ctx.translate(px(pose.x) + T / 2, py(pose.y) + T / 2);
     ctx.rotate(pose.angle * Math.PI / 2);
     ctx.fillStyle = colors.robot;
     ctx.beginPath();
-    ctx.roundRect(-r, -r, 2 * r, 2 * r, r * 0.35);
+    ctx.roundRect(-r, -r, 2 * r, 2 * r, r * 0.25);
     ctx.fill();
-    ctx.fillStyle = colors.robotArrow;
+    ctx.fillStyle = colors.robotMark;
     ctx.beginPath();
     ctx.moveTo(0, -r * 0.7);
     ctx.lineTo(r * 0.5, r * 0.35);
@@ -256,43 +253,80 @@ function drawWall(x, y, dir) {
   ctx.stroke();
 }
 
-// --- Seitenleiste --------------------------------------------------------------
+// --- Seitenspalte --------------------------------------------------------------
 
 function fmtTime(s) {
-  const m = Math.floor(s / 60);
-  return `${m}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 }
 
 function updatePanels() {
   const s = state;
-  $("st-mode").textContent = s.mode;
+  $("st-mode").textContent = s.mode.charAt(0).toUpperCase() + s.mode.slice(1);
   $("st-time").textContent = fmtTime(s.time);
   $("st-limit").textContent = fmtTime(s.time_limit);
   const ratio = Math.min(1, s.time / s.time_limit);
-  const fill = $("timebar-fill");
-  fill.style.width = `${ratio * 100}%`;
-  fill.classList.toggle("low", ratio > 0.85);
-  $("st-visited").textContent = `${s.stats.visited} / ${s.stats.reachable} Kacheln`;
+  $("timebar-fill").style.width = `${ratio * 100}%`;
+  $("timebar-fill").classList.toggle("low", ratio > 0.85);
+  $("st-visited").textContent = `${s.stats.visited} von ${s.stats.reachable} Kacheln`;
   $("st-actions").textContent = s.stats.actions;
   $("st-action").textContent = s.last_action;
-  $("st-checkpoint").textContent = s.checkpoint ? `(${s.checkpoint[0]}, ${s.checkpoint[1]})` : "–";
+  $("st-checkpoint").textContent = s.checkpoint ? `${s.checkpoint[0]}, ${s.checkpoint[1]}` : "–";
+
+  for (const part of ["checkpoints", "blue", "reliability", "exit", "total"]) {
+    $(`sc-${part}`).textContent = s.score[part];
+  }
+  $("sc-lop").textContent = s.score.lop ? `${s.score.lop}× Lack of Progress` : "";
 
   for (const side of ["front", "left", "right"]) {
     const v = s.sensors[side];
-    $(`se-${side}`).textContent = v === null ? "frei (außer Reichweite)" : `${v.toFixed(1)} cm`;
+    $(`se-${side}`).textContent = v === null ? "außer Reichweite" : `${v.toFixed(1)} cm`;
     $(`sw-${side}`).classList.toggle("on", s.sensors.walls[side]);
   }
   if (!colors) readColors();
-  $("se-swatch").style.background = floorColor(s.sensors.color);
+  $("se-swatch").style.background = colors.floors[s.sensors.color];
   $("se-color").textContent = FLOOR_NAMES[s.sensors.color];
   $("se-gyro").textContent = `${s.sensors.gyro}°`;
 
-  const list = $("events");
-  list.replaceChildren(...s.events.slice().reverse().map((text) => {
+  $("events").replaceChildren(...s.events.slice().reverse().map((text) => {
     const li = document.createElement("li");
     li.textContent = text;
     return li;
   }));
+}
+
+function updateWorldInfo() {
+  const parts = [world.name];
+  if (world.seed !== null && world.seed !== undefined) parts.push(`Seed ${world.seed}`);
+  parts.push(`${world.width} × ${world.height}`, `${world.reachable} erreichbare Kacheln`);
+  if (world.floating) parts.push(`${world.floating} davon floating`);
+  $("maze-info").textContent = parts.join(", ") + (world.saved ? "" : " (nicht gespeichert)");
+  $("btn-save").disabled = world.saved;
+  $("notes").replaceChildren(...world.notes.map((text) => {
+    const li = document.createElement("li");
+    li.textContent = text;
+    return li;
+  }));
+}
+
+function applySettings(s) {
+  if (settingsLoaded) return;
+  settingsLoaded = true;
+  const form = $("gen-form");
+  for (const [name, value] of Object.entries(s.defaults)) form.elements[name].value = value;
+  form.elements.width.max = s.max_size;
+  form.elements.height.max = s.max_size;
+  $("sizes").replaceChildren(...s.field_sizes.map(([w, h]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = `${w} × ${h}`;
+    b.title = "Feldgröße eines offiziellen Felds 2026";
+    b.addEventListener("click", () => {
+      form.elements.width.value = w;
+      form.elements.height.value = h;
+    });
+    return b;
+  }));
+  $("red-mode").replaceChildren(...s.red_modes.map((m) => new Option(RED_MODE_NAMES[m] || m, m)));
 }
 
 const sliderToSpeed = (v) => SPEED_MIN * Math.pow(SPEED_MAX / SPEED_MIN, v / 100);
@@ -301,15 +335,22 @@ const fmtSpeed = (s) => (s < 10 ? s.toFixed(1) : Math.round(s)) + "×";
 
 function updateControls() {
   const sel = $("maze-select");
-  if ([...sel.options].map((o) => o.value).join() !== control.mazes.join()) {
-    sel.replaceChildren(...control.mazes.map((name) => new Option(name, name)));
+  const names = control.mazes.join();
+  if (sel.dataset.names !== names) {
+    sel.replaceChildren(new Option("– auswählen –", ""), ...control.mazes.map((n) => new Option(n, n)));
+    sel.dataset.names = names;
   }
-  sel.value = control.current;
+  sel.value = control.mazes.includes(control.current) ? control.current : "";
 
   $("btn-start").disabled = control.running || control.finished;
   $("btn-start").textContent = control.started && !control.finished ? "Weiter" : "Start";
   $("btn-pause").disabled = !control.running;
   $("btn-step").disabled = control.finished;
+
+  const red = $("red-mode");
+  red.value = control.red_mode;
+  red.disabled = control.started;
+  red.title = control.started ? "Erst nach „Neu starten“ änderbar" : "";
 
   const slider = $("speed");
   if (document.activeElement !== slider) slider.value = speedToSlider(control.speed);
@@ -318,11 +359,22 @@ function updateControls() {
 
 // --- Bedienung -----------------------------------------------------------------
 
-$("maze-select").addEventListener("change", (e) => send({ cmd: "load", maze: e.target.value }));
 $("btn-start").addEventListener("click", () => send({ cmd: "start" }));
 $("btn-pause").addEventListener("click", () => send({ cmd: "pause" }));
 $("btn-step").addEventListener("click", () => send({ cmd: "step" }));
 $("btn-reset").addEventListener("click", () => send({ cmd: "reset" }));
+$("btn-save").addEventListener("click", () => send({ cmd: "save" }));
+$("red-mode").addEventListener("change", (e) => send({ cmd: "red_mode", value: e.target.value }));
+$("maze-select").addEventListener("change", (e) => {
+  if (e.target.value) send({ cmd: "load", maze: e.target.value });
+});
+$("gen-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(e.target));
+  for (const k of ["width", "height", "black", "blue", "silver", "zones"]) data[k] = Number(data[k]);
+  data.seed = data.seed.trim() === "" ? null : Number(data.seed);
+  send({ cmd: "generate", ...data });
+});
 $("speed").addEventListener("input", (e) => {
   const speed = sliderToSpeed(Number(e.target.value));
   $("speed-label").textContent = fmtSpeed(speed);
