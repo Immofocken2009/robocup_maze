@@ -13,6 +13,10 @@ TILE_SIZE_CM = 30.0
 ROBOT_LENGTH_CM = 18.0    # MESSEN!
 ROBOT_WIDTH_CM = 16.0     # MESSEN!
 
+# --- Taster (BCM-GPIO-Nummern) -----------------------------------------------
+# 4er-Tastermodul (GND, K1-K4): beim Drücken wird der Pin mit GND verbunden -> interne Pull-ups
+BUTTON_PINS = {"K1": 17, "K2": 27, "K3": 22, "K4": 23}
+
 # --- Ultraschall -------------------------------------------------------------
 US_MAX_DISTANCE_CM = 150.0  # weiter weg = "nichts gemessen"
 WALL_THRESHOLD_CM = 20.0    # gemessener Abstand kleiner als das = Wand
