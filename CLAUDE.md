@@ -159,6 +159,9 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
     5. Lenkänderung begrenzt (pro gefahrenem cm), damit Fehlmessungen nie einen Ruck geben.
     6. D-Anteil beginnt nach jedem Wechsel neu.
   - Der D-Anteil nutzt die Änderung der Abweichung pro gefahrenem cm (erkennt Schrägstand).
+    **D-Anteil nur, wenn beide Seiten zählen.** Zählt nur eine Wand, lenkt er nur mit P
+    (sonst hält er das langsame Hochkriechen einer wegbrechenden, v.a. weit entfernten Wand für
+    Schrägstand und schert aus; Nachteil: an einer einzelnen Wand pendelt er eher).
 - **Kachelende nach Abstand:** Ist vorne eine Wand in Reichweite (auch mehrere Kacheln entfernt),
   wird angehalten, wenn der Abstand vorne zur Kachelmitte passt (zwischen zwei Messungen mit Encoder
   weitergerechnet). Ohne Wand in Reichweite: nach Encoder-Strecke. Encoder begrenzt Ausreißer.
