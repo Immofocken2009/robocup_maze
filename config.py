@@ -85,6 +85,12 @@ STEER_SIDE_MAX_CM = 55.0        # Seitenwand weiter weg: zum Lenken zu ungenau
 CORRIDOR_CM = 2 * SIDE_CENTER_CM                    # Startwert Gangbreite B = links + rechts (wird gemessen)
 CORRIDOR_MAX_CM = CORRIDOR_CM + TILE_SIZE_CM / 2    # links + rechts größer = breiter Raum, nähere Wand zählt
 
+# Schrägstand aus den Seitenwänden (statt Ausrichten an Wänden), am Kachelende geradedrehen
+HEADING_MIN_SAMPLES = 4         # so viele Seitenmessungen mit zwei Wänden braucht die Schätzung mindestens
+HEADING_MIN_SPAN_CM = 10.0      # über so viele cm Fahrt verteilt
+HEADING_FIX_MIN_DEG = 1.0       # kleinerer Schrägstand: nicht drehen
+HEADING_FIX_MAX_DEG = 15.0      # höchstens so weit drehen
+
 # --- Regeln (Regelwerk 2026) -------------------------------------------------
 BLUE_WAIT_S = 5.0           # auf blauer Kachel 5 s am Stück stehen (3.2.5)
 TIME_LIMIT_S = 8 * 60       # 8 Minuten pro Spiel inkl. Kalibrieren (5.3.1)

@@ -3,12 +3,13 @@
 Der nachgebaute Roboter fährt auf einer Geraden: x = Weg der Robotermitte in cm ab der Mitte
 der Startkachel. Die Zeit läuft im Nachbau SPEEDUP-mal so schnell, damit die Tests kurz bleiben.
 """
+import math
 import time
 import unittest
 
 import config
 from hardware.color_sensor import classify
-from hardware.robot import LackOfProgress, RealRobot, RunStopped, Steering, stop_distance
+from hardware.robot import HeadingEstimate, LackOfProgress, RealRobot, RunStopped, Steering, stop_distance
 from navigation.maze_map import TileType
 from navigation.robot_interface import MoveStatus
 
@@ -181,6 +182,26 @@ class HelperTest(unittest.TestCase):
         self.assertAlmostEqual(stop_distance(c + 3 * TILE - 13, 13), TILE)
         self.assertIsNone(stop_distance(None, 0))
         self.assertIsNone(stop_distance(config.FRONT_TRUST_CM + 1, 0))
+
+    def test_heading_estimate(self):
+        """Schräg (4° nach rechts) durch den Gang, dabei lenkt er sich laut Encoder um 3° zurück."""
+        h = HeadingEstimate()
+        deg_per_degree = config.MOTOR_DEG_PER_90 / 90 * 2     # Encoderunterschied pro Grad Drehung
+        offset = 0.5
+        for i in range(13):
+            s = 2.0 * i
+            angle = 4.0 - 3.0 * s / 24                      # wahrer Schrägstand
+            h.track(s, (-deg_per_degree * (4.0 - angle), 0.0))
+            h.sample(offset)
+            offset += math.sin(math.radians(angle)) * 2.0
+        self.assertAlmostEqual(h.degrees(), 1.0, delta=0.1)
+
+    def test_heading_needs_enough_samples(self):
+        h = HeadingEstimate()
+        for s in range(config.HEADING_MIN_SAMPLES - 1):
+            h.track(5.0 * s, (0.0, 0.0))
+            h.sample(0.3 * s)
+        self.assertIsNone(h.degrees())
 
     def test_classify_nearest_color(self):
         cal = {"white": (900, 850, 700, 2500), "black": (60, 60, 50, 170),

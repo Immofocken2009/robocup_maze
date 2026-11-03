@@ -73,6 +73,14 @@ class DrivingTest(unittest.TestCase):
         self.assertEqual(hw.body.lop, 0)
         self.assertAlmostEqual(hw.body.y, 0.5 * TILE, delta=1.5)
 
+    def test_forward_straightens_in_corridor(self):
+        """Schräg losgefahren: am Kachelende dreht er sich nach den Seitenwänden gerade."""
+        hw = SimHardware(corridor(4))
+        hw.body.heading = 6.0
+        result = SimDrivingRobot(hw).forward({TileType.BLACK})
+        self.assertIs(result.status, MoveStatus.OK)
+        self.assertAlmostEqual(hw.body.heading, 0.0, delta=1.0)
+
     def test_blocked_tracks_do_not_hang(self):
         """Schräg gegen die Seitenwand: die Fahrt endet als 'blockiert' statt endlos zu drücken."""
         hw = SimHardware(corridor(4))

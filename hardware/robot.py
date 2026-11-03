@@ -3,11 +3,13 @@
 - Geradeaus: PD-Regler an den Seitenwänden, ohne Wand Encoder-Gleichlauf.
 - Kachelende nach dem Abstand vorne (zwischen den Messungen mit Encoder weitergerechnet),
   ohne Wand in Reichweite nach Encoder-Strecke.
-- Drehen über Encoder, kein Ausrichten an Wänden (Ketten drehen dort durch).
+- Drehen über Encoder, kein Ausrichten an Wänden (Ketten drehen dort durch). Stattdessen am
+  Kachelende um den Schrägstand geradedrehen, der beim Fahren aus den Seitenwänden geschätzt wurde.
 - Schwarz/Rot erkennt der Farbsensor vor der Kachelmitte: anhalten, zurück.
 
 Taster (main.py) unterbrechen jede Aktion über interrupt(): K2 -> RunStopped, K3 -> LackOfProgress.
 """
+import math
 import time
 from collections import deque
 from collections.abc import Callable
@@ -80,6 +82,7 @@ class Steering:
         self.trusted = {"left": False, "right": False}
         self.pending: dict[str, float | None] = {"left": None, "right": None}   # wartet auf Bestätigung
         self.mode: str | None = None    # both, left, right, encoder
+        self.offset = 0.0               # letzte Abweichung von der Sollposition (cm, positiv = zu weit rechts)
         self.samples: deque[tuple[float, float]] = deque()   # (gefahrene cm, Abweichung cm)
         self.enc_ref = 0.0
         self.corr = 0.0
@@ -136,6 +139,7 @@ class Steering:
 
     def _control(self, travelled: float, enc: tuple[float, float], new_sample: bool) -> float:
         mode, offset = self._offset()
+        self.offset = offset
         if mode != self.mode:                           # Wechsel: D-Anteil und Encoder neu beginnen
             self.samples.clear()
             self.enc_ref = enc[0] - enc[1]
@@ -160,6 +164,43 @@ class Steering:
         self.corr += _clamp(_clamp(raw, config.STEER_MAX_DPS) - self.corr, allowed)
         self.corr_at = travelled
         return self.corr
+
+
+class HeadingEstimate:
+    """Schrägstand am Ende einer Fahrt, geschätzt aus den Seitenwänden (nur Messungen mit zwei Wänden).
+
+    Die Abweichung (links − rechts) / 2 ändert sich pro gefahrenem cm um sin(Schrägwinkel). Was die
+    Lenkung selbst dreht, zeigen die Encoder und wird abgezogen; übrig bleibt der Winkel beim Start,
+    geschätzt per Ausgleichsgerade. Schrägstand am Ende = Winkel beim Start + Drehung laut Encoder.
+    """
+
+    def __init__(self):
+        self.at = 0.0           # gefahrene cm beim letzten track()
+        self.angle = 0.0        # Drehung seit dem Start laut Encoder (rad, positiv = nach rechts)
+        self.drift = 0.0        # dadurch seitlich gewandert (cm)
+        self.samples: list[tuple[float, float]] = []   # (gefahrene cm, Abweichung ohne Encoder-Anteil)
+
+    def track(self, travelled: float, enc: tuple[float, float]):
+        """Bei jedem Schleifendurchlauf: enc = Encodergrad seit dem Start."""
+        self.drift += math.sin(self.angle) * (travelled - self.at)
+        self.at = travelled
+        self.angle = math.radians(90 * (enc[0] - enc[1]) / 2 / config.MOTOR_DEG_PER_90)
+
+    def sample(self, offset: float):
+        """Neue Abweichung, während beide Wände zählen."""
+        self.samples.append((self.at, offset - self.drift))
+
+    def degrees(self) -> float | None:
+        """Schrägstand jetzt in Grad (positiv = nach rechts gedreht), None = zu wenig Messungen."""
+        if len(self.samples) < config.HEADING_MIN_SAMPLES:
+            return None
+        s = [p[0] for p in self.samples]
+        y = [p[1] for p in self.samples]
+        if max(s) - min(s) < config.HEADING_MIN_SPAN_CM:
+            return None
+        ms, my = sum(s) / len(s), sum(y) / len(y)
+        slope = sum((a - ms) * (b - my) for a, b in zip(s, y)) / sum((a - ms) ** 2 for a in s)
+        return math.degrees(math.asin(_clamp(slope, 1.0)) + self.angle)
 
 
 def _grid(cm: float, half: float) -> float:
@@ -269,6 +310,7 @@ class RealRobot(RobotInterface):
 
         l0, r0 = self.motors.positions()
         steering = Steering(self.corridor_cm)
+        heading = HeadingEstimate()
         for side in ("left", "right"):          # erste Seitenmessung, zählt nach der zweiten
             steering.side(side, self.us.measure(side), 0.0, (0.0, 0.0))
         self.set_action("fährt vorwärts", f"{stop_text}, {STEER_TEXT[steering.mode]}")
@@ -280,6 +322,8 @@ class RealRobot(RobotInterface):
         while True:
             self._check()
             travelled = self._travelled(l0, r0)
+            l, r = self.encoders
+            heading.track(travelled, (l - l0, r - r0))
 
             # Boden: schwarz/rot vor der Kachelmitte erkennen
             now = self.clock.monotonic()
@@ -303,7 +347,10 @@ class RealRobot(RobotInterface):
                     stop_at = stop_distance(cm, travelled) or stop_at   # jede Messung neu ins Raster
                 else:
                     l, r = self.encoders
+                    heading.track(travelled, (l - l0, r - r0))
                     corr = steering.side(side, cm, travelled, (l - l0, r - r0))
+                    if steering.mode == "both":
+                        heading.sample(steering.offset)
 
             # Ketten blockiert: nicht ewig weiterdrücken, zurück und als Wand melden
             if stall.stalled(self.encoders):
@@ -329,6 +376,13 @@ class RealRobot(RobotInterface):
 
         self.motors.stop()
         self.corridor_cm = steering.corridor
+        l, r = self.encoders
+        heading.track(self._travelled(l0, r0), (l - l0, r - r0))
+        skew = heading.degrees()
+        if skew is not None and abs(skew) >= config.HEADING_FIX_MIN_DEG:
+            skew = _clamp(skew, config.HEADING_FIX_MAX_DEG)
+            self.detail = f"dreht sich {abs(skew):.1f}° gerade"
+            self._rotate(-skew)
         floor = self._measure_floor()
         return MoveResult(MoveStatus.OK, floor)
 
@@ -389,6 +443,12 @@ class RealRobot(RobotInterface):
     def _turn(self, direction: int):
         """90° drehen, direction +1 = rechts, -1 = links."""
         self._begin("dreht rechts" if direction > 0 else "dreht links")
+        self._rotate(direction * 90)
+
+    def _rotate(self, deg: float):
+        """Auf der Stelle über die Encoder drehen, positiv = rechts."""
+        direction = 1 if deg > 0 else -1
+        target = abs(deg) / 90 * config.MOTOR_DEG_PER_90
         l0, r0 = self.motors.positions()
         stall = StallWatch(self.clock)
         while True:
@@ -396,12 +456,13 @@ class RealRobot(RobotInterface):
             self.encoders = self.motors.positions()
             l, r = self.encoders
             done = direction * ((l - l0) - (r - r0)) / 2
-            remaining = config.MOTOR_DEG_PER_90 - done
+            remaining = target - done
             if remaining <= 0 or stall.stalled(self.encoders):
                 break
             speed = config.TURN_SPEED_DPS if remaining > config.TURN_SLOW_DEG else config.TURN_SLOW_DPS
             self.motors.set_dps(direction * speed, -direction * speed)
-            self.motion = {"turn_deg": round(direction * 90 * done / config.MOTOR_DEG_PER_90)}
+            self.motion = {**(self.motion or {}),
+                           "turn_deg": round(direction * 90 * done / config.MOTOR_DEG_PER_90)}
             self.on_change()
             self.clock.sleep(LOOP_S)
         self.motors.stop()
