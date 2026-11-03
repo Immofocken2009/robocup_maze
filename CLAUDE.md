@@ -112,6 +112,15 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Simulierte Ultraschallwerte = Abstand von der Sensorposition (Robotermaße in `config.py`) bis zur nächsten Wand.
 - Alle Browser sehen dieselbe Simulation (gemeinsamer Zustand auf dem Server).
 
+### Gestaltung der Webseite
+
+- **Schlicht**, soll nicht nach typischer KI-Seite aussehen.
+- Farben aus dem echten Feld: weiße Kacheln, erkannte Wände in **Holzton**, Roboter **LEGO-gelb**
+  mit dunklem Pfeil, Bodenfarben schwarz/blau/silber/rot. Oberfläche kühles Grau, Schiefer-Dunkel als Text-/Knopffarbe.
+- Keine Web-Schriften (Pi evtl. ohne Internet), Systemschrift, Zahlen mit fester Breite.
+- Keine Karten mit Schatten, keine Großbuchstaben-Überschriften, keine Monospace-Labels, keine Verläufe.
+- Hell- und Dunkelmodus, auf dem Handy einspaltig, reduzierte Bewegung wird respektiert.
+
 ### Zufallslabyrinthe (`simulation/maze_generator.py`)
 
 - Erzeugt nach dem **Regelwerk 2026** (eine Ebene): Gänge mit Sackgassen und Schleifen,
