@@ -70,13 +70,14 @@ STALL_S = 1.0               # Ketten drehen sich trotz Fahrbefehl so lange nicht
 STALL_DEG = 10.0            # weniger Encoder-Bewegung (beide Ketten zusammen) gilt als Stillstand
 FORWARD_TOLERANCE_CM = 8.0  # der Abstand vorne darf die Kachelstrecke um höchstens so viel ändern
 
-# PD-Regler beim Geradeausfahren. EINSTELLEN!
-STEER_KP = 20.0             # Lenkkorrektur (dps) pro cm Abweichung von der Sollposition
+# PD-Regler beim Geradeausfahren. In der Fahrphysik-Simulation mit Rauschen/Schlupf vorab eingestellt,
+# auf dem echten Feld nachstellen (Simulation kennt die echten Robotermaße noch nicht).
+STEER_KP = 10.0             # Lenkkorrektur (dps) pro cm Abweichung von der Sollposition
 STEER_KD = 300.0            # Lenkkorrektur (dps) pro cm Abweichung je cm Fahrt (Schrägstand)
 STEER_D_WINDOW_CM = 4.0     # Schrägstand über so viele cm Fahrt bestimmen
 STEER_ENC_K = 2.0           # ohne Seitenwand: Lenkkorrektur (dps) pro Encodergrad Unterschied
 STEER_MAX_DPS = 120.0
-STEER_SLEW_DPS_PER_CM = 15.0    # Lenkkorrektur ändert sich pro gefahrenem cm höchstens um so viel
+STEER_SLEW_DPS_PER_CM = 40.0    # Lenkkorrektur ändert sich pro gefahrenem cm höchstens um so viel
 STEER_WIDTH_JUMP_CM = 1.0       # Breiten-Wächter: links + rechts weicht um mehr von B ab -> Seite ignorieren
                                 # (Fehlalarm ist harmlos: dann kurz nur an einer Wand)
 STEER_STEADY_CM = 1.5           # zurückkehrende Wand: 2 Messungen hintereinander mit höchstens so viel Unterschied
@@ -116,10 +117,10 @@ PLAN_COST_TURN = 1.0            # pro 90°-Drehung
 PLAN_COST_BLUE_REVISIT = 50.0   # bereits besuchte blaue Kachel erneut befahren: stark meiden
 
 # --- Geschätzte Dauer der Aktionen (Sim-Zeit und Heimweg-Schätzung) ----------
-MOVE_TIME_S = 2.0           # eine Kachel vorwärts. MESSEN!
-TURN_TIME_S = 1.5           # eine 90°-Drehung. MESSEN!
+MOVE_TIME_S = 3.5           # eine Kachel vorwärts inkl. Messen (Fahrphysik: 3,2 s + Wände 0,6 s). MESSEN!
+TURN_TIME_S = 2.0           # eine 90°-Drehung (Fahrphysik: 1,9 s). MESSEN!
 BACKOFF_TIME_S = 2.0        # schwarze/rote Kachel erkannt, anhalten und zurück. MESSEN!
-ALIGN_TIME_S = 3.0          # nach einer Drehung an der Wand ausrichten. MESSEN!
+ALIGN_TIME_S = 3.0          # nach einer Drehung an der Wand ausrichten (Fahrphysik: 2,5 s). MESSEN!
 
 # --- Zufallslabyrinth --------------------------------------------------------
 FIELD_SIZES_2026 = [(8, 7), (8, 8), (9, 8), (7, 8), (4, 12)]   # offizielle Felder 2026
