@@ -134,13 +134,13 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - Bodentypen: normal, schwarz, blau, silber, rot (Eingang Gefahrenzone). Keine Rampen, keine Opfer.
 - **Fahrphysik mit dem echten Fahrcode** (seit 2026-11-03): Der simulierte Roboter hat eine stufenlose
   Position und Blickrichtung und fährt mit `hardware/robot.py` (PD-Lenkung, Breiten-Wächter, Halt nach
-  Abstand, Andrücken, Schwarz/Rot erkennen). Nur Motoren, Ultraschall, Farbsensor und Uhr sind in
+  Abstand, Schwarz/Rot erkennen). Nur Motoren, Ultraschall, Farbsensor und Uhr sind in
   `simulation/sim_hardware.py` nachgebildet. Änderungen am Fahrcode wirken so automatisch in der Simulation.
-  - Ketten: Differentialantrieb, Wandkontakt pro Kette (beim Andrücken stellt er sich gerade).
+  - Ketten: Differentialantrieb, Wandkontakt pro Kette (Ketten blockieren an Wänden).
   - Ultraschall: Schallkegel (nächster Wandpunkt im Kegel), dadurch kriecht der Wert an Wandkanten hoch wie echt.
   - **Messrauschen** (Ultraschall) und **Kettenschlupf** auf der Webseite an/aus schaltbar.
   - Sim-Uhr: `RealRobot` bekommt eine austauschbare Uhr; die Simulation läuft in Sim-Zeit (Tempo einstellbar).
-  - „Schritt“ = eine Aktion des Roboters (Kachel fahren, drehen, ausrichten, messen, warten).
+  - „Schritt“ = eine Aktion des Roboters (Kachel fahren, drehen, messen, warten).
   - Die Webseite zeigt **nur noch die Fahrphysik**. Der kachelweise `SimRobot` bleibt nur für die
     automatischen Tests (schnell, viele Zufallsläufe).
 - **8-Minuten-Zeitlimit mit Sim-Zeit:** Jede Aktion kostet eine geschätzte Zeit (Werte in `config.py`),
@@ -184,11 +184,12 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - **Ketten blockiert:** Drehen sich die Ketten trotz Fahrbefehl `STALL_S` lang nicht (z.B. schräg an einer
   Wand), bricht die Fahrt ab: zurück und als Wand melden (Explorer plant neu). Drehen und Zurückfahren
   brechen ebenso ab, statt bis zum Zeitende zu drücken.
-- **Drehen:** über die Encoder, danach **an den Wänden ausrichten**:
-  Wand vorne → langsam dagegen fahren, bis die Ketten stehen, dann zurück auf Kachelmitte.
-  Sonst Wand hinten (laut Karte) → rückwärts dagegen, dann vor auf Kachelmitte.
-  (Verworfen: Minimum des Abstands vorne suchen. Der breite Schallkegel liefert immer den
-  senkrechten Abstand, Schrägstand ist im Stand nicht messbar.)
+- **Drehen:** über die Encoder. **Kein Ausrichten an Wänden** (geändert 2026-11-03, Vorgabe Projektinhaber):
+  weder vorne andrücken noch rückwärts an die Wand hinten fahren. Grund: an der Wand drehen die Ketten
+  durch, die Encoder laufen weiter, der Stillstand wird nicht erkannt und er hängt sich auf.
+  Schrägstand korrigiert die Lenkung beim nächsten Fahren an den Seitenwänden.
+  (Verworfen: Andrücken vorne/hinten; umdrehen und vorne andrücken; Minimum des Abstands vorne
+  suchen, weil der breite Schallkegel immer den senkrechten Abstand liefert.)
 - **Farbsensor:** Kalibrierwerkzeug in `tools/` misst Weiß/Schwarz/Blau/Silber/Rot auf dem echten
   Boden und speichert nach `data/`. Beim Fahren wird die nächstliegende kalibrierte Farbe gewählt.
 - **Exit-Signal:** wird ignoriert (keine Blinkhardware), der Roboter bleibt am Start einfach stehen.
