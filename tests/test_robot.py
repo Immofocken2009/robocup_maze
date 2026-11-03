@@ -8,7 +8,7 @@ import unittest
 
 import config
 from hardware.color_sensor import classify
-from hardware.robot import LackOfProgress, RealRobot, RunStopped, Steering, front_target
+from hardware.robot import LackOfProgress, RealRobot, RunStopped, Steering, stop_distance
 from navigation.maze_map import TileType
 from navigation.robot_interface import MoveStatus
 
@@ -188,12 +188,15 @@ class TurnAndButtonsTest(unittest.TestCase):
 
 
 class HelperTest(unittest.TestCase):
-    def test_front_target(self):
+    def test_stop_distance(self):
         c = config.FRONT_CENTER_CM
-        self.assertEqual(front_target(c + TILE), c)
-        self.assertEqual(front_target(c + 2 * TILE + 3), c + TILE)
-        self.assertIsNone(front_target(None))
-        self.assertIsNone(front_target(config.FRONT_TRUST_CM + 1))
+        self.assertEqual(stop_distance(c + TILE, 0), TILE)              # Wand hinter der nächsten Kachel
+        self.assertEqual(stop_distance(c + 2 * TILE + 3, 0), TILE + 3)  # eine Kachel weiter, 3 cm zu weit hinten
+        self.assertEqual(stop_distance(c + 2 * TILE - 10, 10), TILE)    # nach 10 cm Fahrt gemessen
+        # Echo springt auf eine weiter entfernte Wand: Haltepunkt bleibt bei einer Kachel
+        self.assertAlmostEqual(stop_distance(c + 3 * TILE - 13, 13), TILE)
+        self.assertIsNone(stop_distance(None, 0))
+        self.assertIsNone(stop_distance(config.FRONT_TRUST_CM + 1, 0))
 
     def test_classify_nearest_color(self):
         cal = {"white": (900, 850, 700, 2500), "black": (60, 60, 50, 170),

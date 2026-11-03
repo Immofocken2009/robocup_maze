@@ -38,13 +38,19 @@ class TimeUp(Exception):
     """Die 8 Minuten sind abgelaufen."""
 
 
-def front_target(front_cm: float | None) -> float | None:
-    """Abstand vorne, bei dem der Roboter mittig auf der nächsten Kachel steht.
-    None = keine Wand in Reichweite, nach Encoder fahren."""
+def stop_distance(front_cm: float | None, travelled: float) -> float | None:
+    """Fahrstrecke (ab Start der Fahrt), bei der der Roboter mittig auf der nächsten Kachel steht,
+    aus einer Messung vorne nach `travelled` cm. Die Wand darf mehrere Kacheln entfernt sein:
+    gewählt wird die Kachelmitte, die am nächsten an einer Kachellänge liegt. So passt der
+    Haltepunkt auch dann, wenn das Echo von einer anderen Wand oder Wandkante kommt als vorher.
+    None = keine Wand in Reichweite."""
     if front_cm is None or front_cm > config.FRONT_TRUST_CM:
         return None
-    tiles = max(0, round((front_cm - config.FRONT_CENTER_CM) / config.TILE_SIZE_CM) - 1)
-    return config.FRONT_CENTER_CM + tiles * config.TILE_SIZE_CM
+    ahead = travelled + front_cm - config.FRONT_CENTER_CM     # bis zur Mitte der Kachel vor der Wand
+    tiles = round((ahead - config.TILE_SIZE_CM) / config.TILE_SIZE_CM)
+    stop = ahead - tiles * config.TILE_SIZE_CM
+    tolerance = config.FORWARD_TOLERANCE_CM
+    return max(config.TILE_SIZE_CM - tolerance, min(config.TILE_SIZE_CM + tolerance, stop))
 
 
 def _clamp(value: float, limit: float) -> float:
@@ -241,15 +247,15 @@ class RealRobot(RobotInterface):
         if front is not None and front < config.WALL_THRESHOLD_CM:
             self.set_action("Wand vorne", f"{front:.1f} cm")
             return MoveResult(MoveStatus.BLOCKED)
-        target = front_target(front)
-        stop_text = "Halt nach Abstand vorne" if target is not None else "Halt nach Encoder"
+        stop_at = stop_distance(front, 0.0)
+        stop_text = "Halt nach Abstand vorne" if stop_at is not None else "Halt nach Encoder"
+        stop_at = stop_at or config.TILE_SIZE_CM
 
         l0, r0 = self.motors.positions()
         steering = Steering(self.corridor_cm)
         for side in ("left", "right"):          # erste Seitenmessung, zählt nach der zweiten
             steering.side(side, self.us.measure(side), 0.0, (0.0, 0.0))
         self.set_action("fährt vorwärts", f"{stop_text}, {STEER_TEXT[steering.mode]}")
-        front_at, front_travel = front, 0.0
         order = cycle(("front", "left", "front", "right"))
         corr, mode = 0.0, steering.mode
         bad, last_color_t = 0, 0.0
@@ -277,18 +283,13 @@ class RealRobot(RobotInterface):
                 cm = self.us.measure(side)
                 travelled = self._travelled(l0, r0)
                 if side == "front":
-                    if cm is not None:
-                        front_at, front_travel = cm, travelled
+                    stop_at = stop_distance(cm, travelled) or stop_at   # jede Messung neu ins Raster
                 else:
                     l, r = self.encoders
                     corr = steering.side(side, cm, travelled, (l - l0, r - r0))
 
-            # Wie weit noch? Abstand vorne, begrenzt durch die Encoder-Strecke
-            remaining = config.TILE_SIZE_CM - travelled
-            if target is not None and front_at is not None:
-                remaining = front_at - (travelled - front_travel) - target
-            remaining = max(remaining, config.TILE_SIZE_CM - config.FORWARD_TOLERANCE_CM - travelled)
-            remaining = min(remaining, config.TILE_SIZE_CM + config.FORWARD_TOLERANCE_CM - travelled)
+            # Wie weit noch? Haltepunkt aus der letzten Messung vorne (Encoder begrenzt ihn)
+            remaining = stop_at - travelled
             if remaining <= 0:
                 break
             speed = config.DRIVE_SPEED_DPS if remaining > config.DRIVE_SLOW_CM else config.DRIVE_SLOW_DPS
