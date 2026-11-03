@@ -38,7 +38,8 @@
     Datenblatt: 2,8–5,5 V, blinder Bereich ~2 cm, Messzyklus ~70 ms (GPIO), I2C-Adresse fest 0x57 (daher kein I2C).
     **Messung mit `lgpio`** (nicht `gpiozero.DistanceSensor`, das hängt ohne Echo): Sensoren nacheinander,
     Echo-Flanken mit Kernel-Zeitstempel, Timeout 50 ms = kein Echo. Test: `python3 -m tools.test_ultrasonic`
-    Stand 2026-11-03: vorne angeschlossen und misst (stabil ±0,5 cm), links/rechts noch nicht angeschlossen.
+    Stand 2026-11-03: **vorne** misst (stabil ±0,5 cm), **links** geprüft (3–68 cm, folgt der Hand,
+    ~2 % ohne Echo, vereinzelte Ausreißer), **rechts** noch nicht angeschlossen.
 - Kamera vorhanden, Nutzung noch offen
 - Sprache: Python
 
