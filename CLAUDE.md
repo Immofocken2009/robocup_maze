@@ -45,6 +45,7 @@
     Nahbereich < 14 cm noch nicht getestet).
     **Einbau:** vorne mittig, 3 cm hinter der Vorderkante; links und rechts in der Längsmitte,
     je 2 cm von der Seitenkante nach innen.
+- Lüfter am **Fan-Anschluss des Pi 5** (Kernel-Gerät `pwmfan`, Drehzahl lesbar in U/min).
 - Kamera vorhanden, Nutzung noch offen
 - Sprache: Python
 
@@ -62,6 +63,7 @@ robocup/
 │   ├── ultrasonic.py      #   3× Ultraschall
 │   ├── color_sensor.py    #   Farbsensor unten
 │   ├── buttons.py         #   Taster K1–K4
+│   ├── fan.py             #   Lüfter am Fan-Anschluss, CPU-Temperatur
 │   └── robot.py           #   echter Roboter: setzt navigation/robot_interface.py um
 ├── navigation/            # reine Logik, kennt keine Hardware
 │   ├── maze_map.py        #   die Karte
@@ -205,6 +207,14 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - **Webseite, Ansicht „Roboter“:** Live-Karte des echten Roboters, aktuelle Aktion, erkannte Dinge
   (Wände, Boden, Checkpoints), Sensorwerte, Ereignisse. Daneben bleibt die Ansicht „Simulation“.
 - **Gefahrenzone beim echten Roboter:** auf der Webseite vor dem Lauf wählbar, sonst `config.RED_MODE`.
+- **Lüfter (entschieden 2026-11-03):** **eigene Regelung in Python** (`hardware/fan.py`, eigener Thread in
+  `main.py`, alle `FAN_INTERVAL_S`). Stufen ab **45 / 52 / 60 / 68 °C** (Leistung 75 / 125 / 175 / 250 von 255,
+  wie die Kernel-Stufen), 5 °C Hysterese. Lesefehler oder ab 75 °C: volle Leistung.
+  Der Kernel kann auf diesem Pi nicht auf Fremdsteuerung umgestellt werden (nur `step_wise`). Darum schaltet
+  `robocup-robot.service` beim Start die Kernel-Regelung ab (`thermal_zone0/mode = disabled`) und gibt
+  Schreibrechte auf den Lüfter; beim Beenden oder Absturz schaltet systemd sie wieder ein, dann regelt der
+  Kernel normal. `main.py` von Hand gestartet: nur Anzeige, der Kernel regelt.
+  Webseite (Roboter-Ansicht): CPU-Temperatur oben, Abschnitt „System“ mit Drehzahl, Stufe, wer regelt.
 - **Akku und Verbrauch:** Der BrickPi3 misst nur Spannungen, keinen Strom. Die Webseite zeigt die
   **Akkuspannung in V** (oben in der Leiste, Warnung unter `config.BATTERY_LOW_V`) und statt des Stroms
   die **Motorleistung in % pro Kette** (vom BrickPi3, kein echter Stromwert). Ein Strommodul
