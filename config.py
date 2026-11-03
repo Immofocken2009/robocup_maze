@@ -25,6 +25,10 @@ US_PINS = {
     "right": {"trigger": 19, "echo": 26},
 }
 US_MAX_DISTANCE_CM = 150.0  # weiter weg = "nichts gemessen"
+US_ECHO_TIMEOUT_S = 0.05    # so lange auf das Echo warten, sonst "kein Echo"
+US_CYCLE_S = 0.08           # Pause zwischen zwei Messungen (Messzyklus RCWL-9610A ~70 ms)
+SPEED_OF_SOUND_M_S = 343.0  # bei ca. 20 °C
+GPIO_CHIP = 0               # gpiochip0 = GPIO-Leiste des Pi 5 (pinctrl-rp1)
 WALL_THRESHOLD_CM = 20.0    # gemessener Abstand kleiner als das = Wand
 
 # --- Regeln (Regelwerk 2026) -------------------------------------------------
