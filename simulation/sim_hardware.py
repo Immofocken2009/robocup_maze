@@ -315,9 +315,6 @@ class SimMotors:
             return None, None
         return tuple(round(max(-100.0, min(100.0, c / 10))) for c in self.body.command)
 
-    def set_power_limit(self, _percent: int):
-        pass
-
     def stop(self):
         self.set_dps(0, 0)
 

@@ -94,7 +94,6 @@ class Explorer:
         self.on_update()
         self.robot.turn_right()
         self.heading = self.heading.right()
-        self._align()
         self._sense_walls()
         self.on_update()
 
@@ -135,8 +134,6 @@ class Explorer:
                 self.heading = self.heading.right()
             elif not self._forward():
                 break
-            if action != "F" and (i + 1 == len(actions) or actions[i + 1] == "F"):
-                self._align()
         self.planned = []
         self.on_update()
 
@@ -173,14 +170,6 @@ class Explorer:
         return not is_new
 
     # --- Hilfsfunktionen ------------------------------------------------------
-
-    def _align(self):
-        """Nach einer Drehung an einer bekannten Wand vorne oder hinten gerade stellen."""
-        front = self.maze.wall(self.pos, self.heading) is True
-        back = self.maze.wall(self.pos, self.heading.back()) is True
-        if front or back:
-            self.on_update()
-            self.robot.align(front, back)
 
     def _sense_walls(self):
         """Wände nur eintragen, wenn sie noch unbekannt sind (gegen Messrauschen)."""

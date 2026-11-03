@@ -64,9 +64,6 @@ class FakeMotors:
 
     float = stop
 
-    def set_power_limit(self, _percent):
-        pass
-
 
 class FakeUltrasonic:
     def __init__(self, body: Body):
@@ -153,19 +150,6 @@ class ForwardTest(unittest.TestCase):
         body = Body(wall_cm=None, floors=[TileType.NORMAL, TileType.BLUE, TileType.NORMAL])
         result = make_robot(body).forward({TileType.BLACK})
         self.assertIs(result.floor, TileType.BLUE)
-
-
-class AlignTest(unittest.TestCase):
-    def test_push_front_then_back_to_center(self):
-        body = Body(wall_cm=FACE)
-        make_robot(body).align(front_wall=True, back_wall=False)
-        self.assertAlmostEqual(body.x, 0.0, delta=1.5)
-
-    def test_no_wall_found_returns(self):
-        """Karte sagt Wand vorne, Sensor sieht keine: nicht andrücken."""
-        body = Body(wall_cm=None)
-        make_robot(body).align(front_wall=True, back_wall=False)
-        self.assertEqual(body.x, 0.0)
 
 
 class TurnAndButtonsTest(unittest.TestCase):

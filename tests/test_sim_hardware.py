@@ -73,13 +73,6 @@ class DrivingTest(unittest.TestCase):
         self.assertEqual(hw.body.lop, 0)
         self.assertAlmostEqual(hw.body.y, 0.5 * TILE, delta=1.5)
 
-    def test_align_squares_up_at_front_wall(self):
-        hw = SimHardware(corridor(1))
-        hw.body.heading = 6.0                       # 6° schräg vor der Wand
-        SimDrivingRobot(hw).align(front_wall=True, back_wall=False)
-        self.assertAlmostEqual(hw.body.heading, 0.0, delta=1.0)
-        self.assertAlmostEqual(hw.body.y, 0.5 * TILE, delta=1.5)
-
     def test_blocked_tracks_do_not_hang(self):
         """Schräg gegen die Seitenwand: die Fahrt endet als 'blockiert' statt endlos zu drücken."""
         hw = SimHardware(corridor(4))

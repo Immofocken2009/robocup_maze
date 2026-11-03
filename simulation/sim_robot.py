@@ -268,11 +268,6 @@ class SimRobot(RobotInterface):
         self.gyro_deg += 90
         self._after("rechts drehen", config.TURN_TIME_S)
 
-    def align(self, front_wall: bool, back_wall: bool):
-        if front_wall or back_wall:
-            self._before()
-            self._after("ausrichten", config.ALIGN_TIME_S)
-
     def wait(self, seconds: float):
         self._before()
         self._blue_wait_left = max(0.0, self._blue_wait_left - seconds)

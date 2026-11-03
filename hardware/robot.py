@@ -3,7 +3,7 @@
 - Geradeaus: PD-Regler an den Seitenwänden, ohne Wand Encoder-Gleichlauf.
 - Kachelende nach dem Abstand vorne (zwischen den Messungen mit Encoder weitergerechnet),
   ohne Wand in Reichweite nach Encoder-Strecke.
-- Drehen über Encoder, danach an einer Wand vorne oder hinten ausrichten (align).
+- Drehen über Encoder, kein Ausrichten an Wänden (Ketten drehen dort durch).
 - Schwarz/Rot erkennt der Farbsensor vor der Kachelmitte: anhalten, zurück.
 
 Taster (main.py) unterbrechen jede Aktion über interrupt(): K2 -> RunStopped, K3 -> LackOfProgress.
@@ -338,20 +338,6 @@ class RealRobot(RobotInterface):
     def turn_right(self):
         self._turn(1)
 
-    def align(self, front_wall: bool, back_wall: bool):
-        self._begin("richtet sich aus")
-        if front_wall:
-            front = self.us.median("front")
-            if front is not None and front < config.WALL_THRESHOLD_CM:
-                self.set_action("richtet sich aus", "an der Wand vorne")
-                if self._push(1):
-                    self.drive_cm(-config.ALIGN_BACK_CM)
-                return
-        if back_wall:
-            self.set_action("richtet sich aus", "an der Wand hinten")
-            if self._push(-1):
-                self.drive_cm(config.ALIGN_BACK_CM)
-
     def wait(self, seconds: float):
         self._begin("wartet")
         self.motors.stop()
@@ -438,37 +424,3 @@ class RealRobot(RobotInterface):
             self.on_change()
             self.clock.sleep(LOOP_S)
         self.motors.stop()
-
-    def _push(self, direction: int) -> bool:
-        """Langsam gegen eine Wand fahren, bis beide Ketten stehen (stellt den Roboter gerade).
-        False = keine Wand gefunden, dann zurück an den Ausgangspunkt."""
-        l0, r0 = self.motors.positions()
-        self.motors.set_power_limit(config.ALIGN_POWER_LIMIT)
-        try:
-            start = last_t = self.clock.monotonic()
-            last = (l0, r0)
-            self.motors.set_dps(direction * config.ALIGN_SPEED_DPS, direction * config.ALIGN_SPEED_DPS)
-            while True:
-                self._check()
-                self.clock.sleep(LOOP_S)
-                moved = direction * self._travelled(l0, r0)
-                if moved > config.ALIGN_MAX_CM:
-                    self.motors.stop()
-                    self.drive_cm(-direction * moved)
-                    return False
-                now = self.clock.monotonic()
-                if now - last_t >= 0.1:
-                    l, r = self.encoders
-                    stalled = (abs(l - last[0]) < config.ALIGN_STALL_DEG
-                               and abs(r - last[1]) < config.ALIGN_STALL_DEG)
-                    last, last_t = (l, r), now
-                    if stalled and now - start > 0.3:
-                        break
-            end = self.clock.monotonic() + config.ALIGN_PUSH_S
-            while self.clock.monotonic() < end:
-                self._check()
-                self.clock.sleep(LOOP_S)
-            self.motors.stop()
-            return True
-        finally:
-            self.motors.set_power_limit(0)

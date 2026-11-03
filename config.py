@@ -85,14 +85,6 @@ STEER_SIDE_MAX_CM = 55.0        # Seitenwand weiter weg: zum Lenken zu ungenau
 CORRIDOR_CM = 2 * SIDE_CENTER_CM                    # Startwert Gangbreite B = links + rechts (wird gemessen)
 CORRIDOR_MAX_CM = CORRIDOR_CM + TILE_SIZE_CM / 2    # links + rechts größer = breiter Raum, nähere Wand zählt
 
-# Ausrichten an einer Wand nach dem Drehen
-ALIGN_SPEED_DPS = 150
-ALIGN_POWER_LIMIT = 40      # % Motorleistung beim Andrücken
-ALIGN_MAX_CM = 14.0         # so weit ohne Wandkontakt gefahren: abbrechen
-ALIGN_STALL_DEG = 3.0       # weniger Bewegung je 0,1 s = Kette steht an der Wand
-ALIGN_PUSH_S = 0.3          # danach noch so lange andrücken
-ALIGN_BACK_CM = (TILE_SIZE_CM - WALL_THICKNESS_CM) / 2 - ROBOT_LENGTH_CM / 2   # von der Wand zurück auf Mitte
-
 # --- Regeln (Regelwerk 2026) -------------------------------------------------
 BLUE_WAIT_S = 5.0           # auf blauer Kachel 5 s am Stück stehen (3.2.5)
 TIME_LIMIT_S = 8 * 60       # 8 Minuten pro Spiel inkl. Kalibrieren (5.3.1)
@@ -120,7 +112,6 @@ PLAN_COST_BLUE_REVISIT = 50.0   # bereits besuchte blaue Kachel erneut befahren:
 MOVE_TIME_S = 3.5           # eine Kachel vorwärts inkl. Messen (Fahrphysik: 3,2 s + Wände 0,6 s). MESSEN!
 TURN_TIME_S = 2.0           # eine 90°-Drehung (Fahrphysik: 1,9 s). MESSEN!
 BACKOFF_TIME_S = 2.0        # schwarze/rote Kachel erkannt, anhalten und zurück. MESSEN!
-ALIGN_TIME_S = 3.0          # nach einer Drehung an der Wand ausrichten (Fahrphysik: 2,5 s). MESSEN!
 
 # --- Zufallslabyrinth --------------------------------------------------------
 FIELD_SIZES_2026 = [(8, 7), (8, 8), (9, 8), (7, 8), (4, 12)]   # offizielle Felder 2026

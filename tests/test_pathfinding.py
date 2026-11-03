@@ -51,8 +51,7 @@ class PlanPathTest(unittest.TestCase):
 
     def test_estimate_time(self):
         m = corridor(2)
-        # Nach einer Drehung wird ausgerichtet (eine Drehgruppe = einmal Ausrichten)
-        expected = 2 * config.MOVE_TIME_S + 2 * config.TURN_TIME_S + config.ALIGN_TIME_S
+        expected = 2 * config.MOVE_TIME_S + 2 * config.TURN_TIME_S
         self.assertEqual(estimate_time(m, (0, 0), Dir.N, ["F", "R", "R", "F"]), expected)
 
 
