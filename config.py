@@ -131,6 +131,13 @@ GENERATOR_MAX_SIZE = 16
 WEB_HOST = "0.0.0.0"        # 0.0.0.0 = auch von anderen Geräten im Netz erreichbar
 WEB_PORT = 8000
 
+# --- Lüfter (Fan-Anschluss des Pi 5), eigene Regelung in hardware/fan.py -------------
+FAN_STEPS = [(45.0, 75), (52.0, 125), (60.0, 175), (68.0, 250)]   # ab °C -> Leistung (0–255)
+FAN_HYST_C = 5.0            # erst so viel unter der Schwelle eine Stufe zurück
+FAN_FULL_C = 75.0           # ab hier (und bei Lesefehler) volle Leistung
+FAN_INTERVAL_S = 2.0        # so oft regeln
+CPU_HOT_C = 75.0            # darüber Warnung auf der Webseite
+
 # --- Roboterprogramm (main.py) -------------------------------------------------
 ROBOT_LINK_URL = f"ws://localhost:{WEB_PORT}/robot"   # dorthin schickt main.py seine Daten
 ROBOT_LINK_RETRY_S = 2.0    # Webseite nicht erreichbar: so oft neu versuchen

@@ -416,6 +416,20 @@ const robot = {
       bat.classList.toggle("low", s.battery_low);
     }
 
+    // System: CPU-Temperatur und Lüfter
+    const sy = s.system;
+    if (sy) {
+      const temp = sy.cpu_temp === null ? "–" : `${sy.cpu_temp.toFixed(1)} °C`;
+      $("rb-cpu").textContent = sy.cpu_temp === null ? "–" : `${Math.round(sy.cpu_temp)} °C`;
+      $("rb-cpu").classList.toggle("low", sy.cpu_hot);
+      $("ry-temp").textContent = temp;
+      $("ry-rpm").textContent = sy.fan_rpm === null ? "–" : sy.fan_rpm > 0 ? `${sy.fan_rpm} U/min` : "steht";
+      $("ry-level").textContent = `${sy.fan_level} von ${sy.fan_levels}` +
+        (sy.fan_percent === null ? "" : ` (${sy.fan_percent} %)`);
+      $("ry-meter").style.width = `${sy.fan_percent || 0}%`;
+      $("ry-control").textContent = sy.fan_control === "Python" ? "Python (hardware/fan.py)" : "Kernel";
+    }
+
     // Lauf
     $("rl-mode").textContent = capitalize(s.mode);
     $("rl-visited").textContent = s.stats ? `${s.stats.visited} Kacheln` : "–";

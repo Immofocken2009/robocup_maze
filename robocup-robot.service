@@ -8,7 +8,11 @@ After=robocup-web.service
 [Service]
 User=immo
 WorkingDirectory=/home/immo/robocup
+# Lüfter: solange main.py läuft, regelt Python (hardware/fan.py). Dafür Kernel-Regelung aus und
+# Schreibrechte auf den Lüfter; beim Beenden oder Absturz regelt wieder der Kernel.
+ExecStartPre=+/bin/sh -c 'for d in /sys/class/hwmon/hwmon*; do if [ "$$(cat $$d/name)" = pwmfan ]; then chgrp gpio $$d/pwm1; chmod g+w $$d/pwm1; fi; done; echo disabled > /sys/class/thermal/thermal_zone0/mode'
 ExecStart=/usr/bin/python3 main.py
+ExecStopPost=+/bin/sh -c 'echo enabled > /sys/class/thermal/thermal_zone0/mode'
 Environment=PYTHONUNBUFFERED=1
 Restart=always
 RestartSec=3

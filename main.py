@@ -20,6 +20,7 @@ import aiohttp
 import config
 from hardware.buttons import Buttons
 from hardware.color_sensor import ColorSensor
+from hardware.fan import Fan
 from hardware.motors import Motors
 from hardware.robot import LackOfProgress, RealRobot, RunStopped, TimeUp
 from hardware.ultrasonic import Ultrasonic
@@ -53,6 +54,7 @@ class RobotProgram:
         self.latest: str | None = None              # letzter Zustand (für neue Verbindungen)
         self.ws: aiohttp.ClientWebSocketResponse | None = None
         self.closing = False
+        self.fan = Fan()
 
     # --- Taster (laufen im gpiozero-Thread) -------------------------------------
 
@@ -167,6 +169,15 @@ class RobotProgram:
         self.robot.motion = None
         self.publish(force=True)
 
+    def fan_loop(self):
+        """Eigener Thread: Lüfter regeln, unabhängig davon, was der Roboter gerade tut."""
+        while not self.closing:
+            try:
+                self.fan.update()
+            except Exception:
+                log.exception("Lüfter")
+            time.sleep(config.FAN_INTERVAL_S)
+
     def shutdown(self):
         self.closing = True
         if self.robot:
@@ -212,6 +223,16 @@ class RobotProgram:
             "events": [],
             "mode": "bereit",
         }
+        fan = self.fan
+        msg["system"] = {"cpu_temp": fan.temp, "fan_rpm": fan.rpm, "fan_level": fan.level,
+                         "fan_levels": len(config.FAN_STEPS),
+                         "fan_percent": round(fan.pwm / 2.55) if fan.pwm is not None else None,
+                         "fan_control": "Python" if fan.python_controls else "Kernel",
+                         "cpu_hot": fan.temp is not None and fan.temp >= config.CPU_HOT_C}
+        if fan.warning:
+            msg["warnings"].append(fan.warning)
+        if msg["system"]["cpu_hot"]:
+            msg["warnings"].append(f"CPU heiß ({fan.temp:.0f} °C)")
         if r:
             if time.monotonic() - self._battery_t > config.BATTERY_READ_S:
                 self._battery_t = time.monotonic()
@@ -280,6 +301,7 @@ def main():
     asyncio.set_event_loop(loop)
     program = RobotProgram(loop)
     threading.Thread(target=program.worker, daemon=True).start()
+    threading.Thread(target=program.fan_loop, daemon=True).start()
     link = loop.create_task(program.link())
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, link.cancel)

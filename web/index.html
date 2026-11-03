@@ -25,6 +25,7 @@
           <select id="rb-red-mode"></select>
         </label>
         <p class="battery">Akku <b id="rb-battery">–</b></p>
+        <p class="battery">CPU <b id="rb-cpu">–</b></p>
         <div class="clock">
           <span><b id="rb-time">–</b> von <span id="rb-limit">8:00</span></span>
           <div class="timebar" aria-hidden="true"><div id="rb-timebar-fill" class="timebar-fill"></div></div>
@@ -76,6 +77,16 @@
           <dt>Encoder L / R</dt><dd id="rs-enc">–</dd>
           <dt>Motorleistung L</dt><dd><span id="rs-power-left">–</span><i class="meter" aria-hidden="true"><i id="rm-left"></i></i></dd>
           <dt>Motorleistung R</dt><dd><span id="rs-power-right">–</span><i class="meter" aria-hidden="true"><i id="rm-right"></i></i></dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>System</h2>
+        <dl>
+          <dt>CPU-Temperatur</dt><dd id="ry-temp">–</dd>
+          <dt>Lüfter</dt><dd id="ry-rpm">–</dd>
+          <dt>Lüfterstufe</dt><dd><span id="ry-level">–</span><i class="meter" aria-hidden="true"><i id="ry-meter"></i></i></dd>
+          <dt>Regelung</dt><dd id="ry-control">–</dd>
         </dl>
       </section>
 
