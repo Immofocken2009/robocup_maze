@@ -30,7 +30,7 @@
 ```
 robocup/
 ├── CLAUDE.md
-├── config.py              # alle Einstellungen: Pins, Maße, Schwellwerte
+├── config.py              # alle Einstellungen: Pins, Maße, Schwellwerte, Zeiten
 ├── main.py                # startet den Wettkampflauf
 ├── hardware/              # spricht direkt mit der Hardware
 │   ├── motors.py          #   BrickPi3: fahren, drehen
@@ -39,12 +39,18 @@ robocup/
 ├── navigation/            # reine Logik, kennt keine Hardware
 │   ├── maze_map.py        #   die Karte
 │   ├── pathfinding.py     #   Wegplanung
-│   └── explorer.py        #   Erkundungslogik
+│   ├── explorer.py        #   Erkundungslogik
+│   └── robot_interface.py #   Schnittstelle Explorer <-> Roboter (Simulation und echter Roboter)
 ├── simulation/            # Erkundung ohne echten Roboter testen
 │   ├── sim_robot.py
-│   └── mazes/             #   Testlabyrinthe als Textdateien
+│   └── mazes/             #   Testlabyrinthe als JSON
+├── web/                   # Webseite (flach)
+│   ├── server.py          #   aiohttp: liefert Seite + WebSocket
+│   ├── index.html
+│   ├── app.js
+│   └── style.css
 ├── tools/                 # Testprogramme (Motoren, Sensoren, Farbkalibrierung)
-├── tests/                 # automatische Tests der Logik
+├── tests/                 # automatische Tests der Logik (unittest)
 └── data/                  # Kalibrierwerte
 ```
 
@@ -89,6 +95,37 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 ### Simulation
 
 - Die Simulation wird auf einer **Webseite** angezeigt: Kacheln, Wände, Roboter usw.
+- Webserver: **aiohttp** (apt: `python3-aiohttp`), liefert Seite und **WebSocket (live)** auf einem Port.
+- Erreichbar **auch von anderen Geräten** im Netz (Server lauscht auf `0.0.0.0`).
+- Funktionen der Seite: Start / Pause / Schritt, Geschwindigkeit, Labyrinth auswählen,
+  Karte vs. Wirklichkeit (Unbekanntes ausgegraut, Grenzkacheln und geplanter Weg markiert),
+  Sensorwerte.
+- Bodentypen: normal, schwarz, blau, silber. Keine Rampen, keine Opfer.
+- Sensorwerte zunächst **exakt** (Rauschen kommt später).
+- **8-Minuten-Zeitlimit mit Sim-Zeit:** Jede Aktion kostet eine geschätzte Zeit (Werte in `config.py`),
+  der Roboter fährt rechtzeitig heim.
+- Testlabyrinthe als **JSON**: `width`, `height`, `start`, `tiles` mit `x`, `y`, `walls`, `floor`
+  (Format siehe unten).
+- Tests mit **unittest** (Standardbibliothek).
+
+### JSON-Format der Testlabyrinthe
+
+```json
+{
+  "width": 4, "height": 3,
+  "start": [0, 0],
+  "start_dir": "N",
+  "tiles": [
+    {"x": 0, "y": 0, "walls": "SW", "floor": "normal"},
+    {"x": 1, "y": 1, "walls": "",   "floor": "black"}
+  ]
+}
+```
+
+- `x` nach rechts (Osten), `y` nach oben (Norden), (0, 0) = unten links. Wie in der Roboterkarte.
+- `walls`: Buchstaben N/E/S/W. Eine Wand gilt, wenn **eine** der beiden Nachbarkacheln sie einträgt.
+- Ränder des Labyrinths sind immer Wand.
+- `floor`: `normal`, `black`, `blue`, `silver`. `start_dir` (optional, Standard `N`): Startblickrichtung.
 
 ## Offene Fragen an den Projektinhaber
 
