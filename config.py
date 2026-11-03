@@ -21,8 +21,8 @@ BUTTON_PINS = {"K1": 17, "K2": 27, "K3": 22, "K4": 23}
 # 3× RCWL-9610A im GPIO-Modus (Trig/Echo wie HC-SR04), Versorgung 3,3 V (BCM-GPIO-Nummern)
 US_PINS = {
     "front": {"trigger": 5, "echo": 6},
-    "left": {"trigger": 12, "echo": 13},
-    "right": {"trigger": 19, "echo": 26},
+    "left": {"trigger": 26, "echo": 20},
+    "right": {"trigger": 19, "echo": 16},
 }
 US_MAX_DISTANCE_CM = 150.0  # weiter weg = "nichts gemessen"
 US_ECHO_TIMEOUT_S = 0.05    # so lange auf das Echo warten, sonst "kein Echo"
