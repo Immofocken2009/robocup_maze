@@ -23,7 +23,7 @@
     (also bevor sie als „befahren“ zählt, Regel 5.4.4). Schwarz/Rot: erkennen, anhalten, zurück.
     **TCS34725** bestätigt (I2C-Bus 1, Adresse 0x29, ID 0x44). Liefert Werte (Stand 2026-11-03).
   - 1× **PmodGYRO** (Digilent, 3-Achsen-Gyroskop), über **I2C** angeschlossen.
-    **Defekt** (Stand 2026-11-03), muss nachbestellt werden. Bis dahin kein Gyro.
+    **Defekt** (Stand 2026-11-03). Ersatz: **gleiches Modell (PmodGYRO)** wird nachbestellt. Bis dahin kein Gyro.
     Anschluss: **J2** (nicht J1!), Reihenfolge SCL, SDA, GND, VCC (Pin 1 = eckiges Pad) →
     Pi Pin 5 (SCL), Pin 3 (SDA), Pin 6 (GND), Pin 1 (3,3 V). Beide J2-Reihen sind gleich belegt.
     Erwartet: Adresse 0x69, WHO_AM_I (Register 0x0F) = 0xD3.
@@ -201,7 +201,6 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 ## Offene Fragen an den Projektinhaber
 
-- Gyro: Ersatz wird nachbestellt (gleiches Modell PmodGYRO?)
 - Ultraschall: Modell und Pins (noch nicht verbunden)
 
 ## Bekannte Stolpersteine
