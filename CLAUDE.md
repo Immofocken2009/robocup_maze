@@ -170,6 +170,10 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - **Webseite, Ansicht „Roboter“:** Live-Karte des echten Roboters, aktuelle Aktion, erkannte Dinge
   (Wände, Boden, Checkpoints), Sensorwerte, Ereignisse. Daneben bleibt die Ansicht „Simulation“.
 - **Gefahrenzone beim echten Roboter:** auf der Webseite vor dem Lauf wählbar, sonst `config.RED_MODE`.
+- **Akku und Verbrauch:** Der BrickPi3 misst nur Spannungen, keinen Strom. Die Webseite zeigt die
+  **Akkuspannung in V** (oben in der Leiste, Warnung unter `config.BATTERY_LOW_V`) und statt des Stroms
+  die **Motorleistung in % pro Kette** (vom BrickPi3, kein echter Stromwert). Ein Strommodul
+  (z.B. INA226) wurde angeboten, ist aber vorerst nicht gewünscht.
 
 ### Gestaltung der Webseite
 
