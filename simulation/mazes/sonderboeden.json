@@ -1,0 +1,27 @@
+{
+  "width": 5, "height": 4,
+  "start": [0, 3],
+  "start_dir": "E",
+  "tiles": [
+    {"x": 0, "y": 3, "walls": "NW", "floor": "normal"},
+    {"x": 1, "y": 3, "walls": "NE", "floor": "normal"},
+    {"x": 2, "y": 3, "walls": "NW", "floor": "black"},
+    {"x": 3, "y": 3, "walls": "N", "floor": "normal"},
+    {"x": 4, "y": 3, "walls": "NE", "floor": "silver"},
+    {"x": 0, "y": 2, "walls": "W", "floor": "normal"},
+    {"x": 1, "y": 2, "walls": "E", "floor": "blue"},
+    {"x": 2, "y": 2, "walls": "SW", "floor": "normal"},
+    {"x": 3, "y": 2, "walls": "E", "floor": "normal"},
+    {"x": 4, "y": 2, "walls": "EW", "floor": "normal"},
+    {"x": 0, "y": 1, "walls": "EW", "floor": "normal"},
+    {"x": 1, "y": 1, "walls": "W", "floor": "black"},
+    {"x": 2, "y": 1, "walls": "N", "floor": "normal"},
+    {"x": 3, "y": 1, "walls": "S", "floor": "blue"},
+    {"x": 4, "y": 1, "walls": "E", "floor": "normal"},
+    {"x": 0, "y": 0, "walls": "SW", "floor": "normal"},
+    {"x": 1, "y": 0, "walls": "S", "floor": "normal"},
+    {"x": 2, "y": 0, "walls": "S", "floor": "silver"},
+    {"x": 3, "y": 0, "walls": "NS", "floor": "normal"},
+    {"x": 4, "y": 0, "walls": "ES", "floor": "normal"}
+  ]
+}
