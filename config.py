@@ -127,3 +127,4 @@ ROBOT_PUBLISH_S = 0.1       # höchstens so oft Daten an die Webseite schicken
 IDLE_SENSOR_S = 0.3         # im Stand die Sensoren so oft lesen (für die Anzeige)
 HARDWARE_RETRY_S = 5.0      # Hardware antwortet nicht: so oft neu versuchen
 BATTERY_LOW_V = 9.0         # darunter Warnung auf der Webseite
+BATTERY_READ_S = 1.0        # Akkuspannung so oft lesen

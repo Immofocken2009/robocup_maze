@@ -146,6 +146,11 @@ label { color: var(--muted); }
 .action { font-size: 1.3rem; font-weight: 600; }
 .strong { font-weight: 600; }
 .keys { margin-top: .6rem; }
+.battery b { font-weight: 600; }
+.battery b.low { color: var(--red); }
+/* Motorleistung als schmaler Balken, 0–100 % */
+.meter { display: inline-block; width: 3.5rem; height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--ink); }
 
 canvas { display: block; max-width: 100%; }
 

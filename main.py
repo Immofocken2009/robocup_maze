@@ -213,12 +213,14 @@ class RobotProgram:
             "mode": "bereit",
         }
         if r:
-            if time.monotonic() - self._battery_t > 2:
+            if time.monotonic() - self._battery_t > config.BATTERY_READ_S:
                 self._battery_t = time.monotonic()
                 self.battery = r.motors.battery()
             msg.update(action=r.action, detail=r.detail, motion=r.motion,
                        detected={"walls": r.walls, "floor": r.floor.value if r.floor else None},
-                       sensors={**r.sensors(), "battery": round(self.battery, 2)})
+                       sensors={**r.sensors(), "battery": round(self.battery, 2),
+                                "motor_power": list(r.motors.power())},
+                       battery_low=self.battery < config.BATTERY_LOW_V)
             if r.color.warning:
                 msg["warnings"].append(r.color.warning)
             if self.battery < config.BATTERY_LOW_V:

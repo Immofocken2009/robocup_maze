@@ -386,7 +386,14 @@ const robot = {
       $("rs-color").textContent = se.color ? FLOOR_NAMES[se.color] : "nicht kalibriert";
       $("rs-rgbc").textContent = se.rgbc ? se.rgbc.join("  ") : "–";
       $("rs-enc").textContent = `${se.encoders[0]}°  /  ${se.encoders[1]}°`;
-      $("rs-battery").textContent = `${se.battery.toFixed(1)} V`;
+      ["left", "right"].forEach((side, i) => {
+        const p = se.motor_power[i];
+        $(`rs-power-${side}`).textContent = p === null ? "aus" : `${p} %`;
+        $(`rm-${side}`).style.width = `${p === null ? 0 : Math.min(100, Math.abs(p))}%`;
+      });
+      const bat = $("rb-battery");
+      bat.textContent = `${se.battery.toFixed(2)} V`;
+      bat.classList.toggle("low", s.battery_low);
     }
 
     // Lauf

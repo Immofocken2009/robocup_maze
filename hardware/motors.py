@@ -25,6 +25,14 @@ class Motors:
         """Encoder in Grad (links, rechts), positiv = vorwärts gefahren."""
         return tuple(self.bp.get_motor_encoder(self.ports[side]) * self.sign[side] for side in SIDES)
 
+    def power(self) -> tuple[int | None, int | None]:
+        """Aktuelle Motorleistung in % (links, rechts), positiv = vorwärts. None = stromlos."""
+        result = []
+        for side in SIDES:
+            power = self.bp.get_motor_status(self.ports[side])[1]
+            result.append(None if power == self.bp.MOTOR_FLOAT else power * self.sign[side])
+        return tuple(result)
+
     def set_power_limit(self, percent: int):
         """Höchste Motorleistung in % (0 = ohne Grenze)."""
         for port in self.ports.values():
