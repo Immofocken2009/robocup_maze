@@ -18,9 +18,9 @@
 - BrickPi3 (SPI, `/dev/spidev0.1`, belegt GPIO 7–11), Bibliothek `brickpi3` ist installiert
 - Antrieb: große LEGO-Motoren am BrickPi3
 - Sensoren an den GPIOs des Pi:
-  - 1× RGB-Farbsensor nach unten, **vorne am Roboter** (nicht in der Mitte).
+  - 1× RGB-Farbsensor nach unten, **vorne mittig, ca. 2 cm hinter der Vorderkante**.
     Vermutlich I2C (z.B. TCS34725), noch nicht bestätigt. I2C ist auf dem Pi derzeit **deaktiviert**.
-  - 1× **PmodGYRO** (Digilent, 3-Achsen-Gyroskop). Anschluss (I2C oder SPI) noch offen.
+  - 1× **PmodGYRO** (Digilent, 3-Achsen-Gyroskop), über **I2C** angeschlossen.
   - 3× Ultraschall: vorne, links, rechts. **Noch nicht verbunden**, Modell/Pins offen.
 - Kamera vorhanden, Nutzung noch offen
 - Sprache: Python
@@ -51,6 +51,11 @@ robocup/
 Grundsatz: `navigation/` importiert nie etwas aus `hardware/`, damit die Logik im Simulator läuft.
 Kamera später in einem eigenen Ordner (z.B. `vision/`); dafür ist noch eine Vorgabe nötig.
 
+## Aktuelle Phase
+
+Nur der **Erkundungsalgorithmus** wird programmiert, mit normalem Fahren:
+**keine Rampen, keine Opfer**. Getestet wird in der Simulation mit Webseiten-Ansicht.
+
 ## Umsetzungsentscheidungen
 
 ### Erkundungsalgorithmus (freigegeben)
@@ -77,14 +82,18 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   - Messrauschen: Wände nur beim ersten Besuch eintragen bzw. mehrfach messen
   - Zeitlimit: Heimweg-Zeit laufend schätzen, bei knapper Restzeit zum Start (Exit-Bonus)
   - Position: Kacheln per Encoder zählen, an Wänden korrigieren (Abstand vorne, mittig zwischen Seitenwänden)
-- **Später:** Rampen/Etagen (dritte Koordinate), Lack of Progress, Opfererkennung
+- **Lack of Progress:** Der Roboter behält die **ganze Karte** (kein Zurückspringen auf den Checkpoint-Stand).
+- **Später:** Rampen/Etagen (dritte Koordinate), Opfererkennung
   (pro Wand merken, ob schon abgesucht).
+
+### Simulation
+
+- Die Simulation wird auf einer **Webseite** angezeigt: Kacheln, Wände, Roboter usw.
 
 ## Offene Fragen an den Projektinhaber
 
-- Lack of Progress: ganze Karte behalten oder auf Checkpoint-Stand zurück? Taster als Signal?
-- PmodGYRO: über I2C oder SPI angeschlossen, an welchen Pins?
-- Farbsensor: Modell bestätigen, Abstand von der Robotermitte nach vorne
+- Lack of Progress: Taster als Signal?
+- Farbsensor: Modell bestätigen
 - Ultraschall: Modell und Pins (noch nicht verbunden)
 
 ## Bekannte Stolpersteine
