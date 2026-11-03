@@ -107,6 +107,9 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - Testlabyrinthe als **JSON**: `width`, `height`, `start`, `tiles` mit `x`, `y`, `walls`, `floor`
   (Format siehe unten).
 - Tests mit **unittest** (Standardbibliothek).
+- Die Simulation arbeitet kachelweise (eine Aktion = eine Kachel bzw. eine 90°-Drehung).
+  Simulierte Ultraschallwerte = Abstand von der Sensorposition (Robotermaße in `config.py`) bis zur nächsten Wand.
+- Alle Browser sehen dieselbe Simulation (gemeinsamer Zustand auf dem Server).
 
 ### JSON-Format der Testlabyrinthe
 
@@ -126,6 +129,11 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - `walls`: Buchstaben N/E/S/W. Eine Wand gilt, wenn **eine** der beiden Nachbarkacheln sie einträgt.
 - Ränder des Labyrinths sind immer Wand.
 - `floor`: `normal`, `black`, `blue`, `silver`. `start_dir` (optional, Standard `N`): Startblickrichtung.
+
+## Befehle (im Projektordner ausführen)
+
+- Simulation starten: `python3 -m web.server`, dann im Browser `http://<Pi-IP>:8000`
+- Tests: `python3 -m unittest discover -s tests`
 
 ## Offene Fragen an den Projektinhaber
 
