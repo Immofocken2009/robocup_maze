@@ -10,13 +10,17 @@ PROJECT_DIR = Path(__file__).resolve().parent
 TILE_SIZE_CM = 30.0
 
 # --- Roboter-Maße (cm) -------------------------------------------------------
-ROBOT_LENGTH_CM = 18.0    # MESSEN!
-ROBOT_WIDTH_CM = 16.0     # MESSEN!
+# Außen über alles (mit überstehenden Teilen), gemessen 2026-11-04. Ketten mittig unter dem Roboter
+# (Drehmitte = Mitte), Kettenmitten 15 cm auseinander.
+ROBOT_LENGTH_CM = 16.5
+ROBOT_WIDTH_CM = 19.5
 
-# Einbau der Sensoren
-US_FRONT_INSET_CM = 3.0   # vorderer Ultraschall: mittig, 3 cm hinter der Vorderkante
-US_SIDE_INSET_CM = 2.0    # seitliche Ultraschall: in der Längsmitte, 2 cm von der Seitenkante nach innen
-COLOR_INSET_CM = 2.0      # Farbsensor: vorne mittig, 2 cm hinter der Vorderkante
+# Einbau der Sensoren (Vorderkante = vorderster Punkt = Vorderseite des vorderen Ultraschalls)
+US_FRONT_INSET_CM = 0.0   # vorderer Ultraschall: mittig, ragt 1 cm über das Gehäuse (vorderster Punkt)
+US_SIDE_INSET_CM = 2.0    # seitliche Ultraschall: 2 cm von der Seitenkante nach innen ...
+US_SIDE_BACK_CM = 1.0     # ... und 1 cm hinter der Vorderkante
+US_SIDE_AHEAD_CM = ROBOT_LENGTH_CM / 2 - US_SIDE_BACK_CM   # so weit sitzen sie vor der Drehmitte
+COLOR_INSET_CM = 1.5      # Farbsensor: vorne mittig, 1,5 cm hinter der Vorderkante
 
 # Abstand Sensor–Wand, wenn der Roboter mittig auf der Kachel steht
 WALL_THICKNESS_CM = 2.0   # Regel 3.1: Durchgang 28 cm bei 30-cm-Kacheln, Wand ragt 1 cm in jede Kachel
@@ -71,7 +75,7 @@ STALL_DEG = 10.0            # weniger Encoder-Bewegung (beide Ketten zusammen) g
 FORWARD_TOLERANCE_CM = 8.0  # der Abstand vorne darf die Kachelstrecke um höchstens so viel ändern
 
 # PD-Regler beim Geradeausfahren. In der Fahrphysik-Simulation mit Rauschen/Schlupf vorab eingestellt,
-# auf dem echten Feld nachstellen (Simulation kennt die echten Robotermaße noch nicht).
+# auf dem echten Feld nachstellen (Simulation kennt die Maße, aber nicht das echte Fahrverhalten).
 STEER_KP = 10.0             # Lenkkorrektur (dps) pro cm Abweichung von der Sollposition
 STEER_KD = 300.0            # Lenkkorrektur (dps) pro cm Abweichung je cm Fahrt (Schrägstand)
 STEER_D_WINDOW_CM = 4.0     # Schrägstand über so viele cm Fahrt bestimmen

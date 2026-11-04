@@ -17,9 +17,14 @@
 - Raspberry Pi 5, Debian 13 (trixie), Python 3.13
 - BrickPi3 (SPI, `/dev/spidev0.1`, belegt GPIO 7–11), Bibliothek `brickpi3` ist installiert
 - Antrieb: große LEGO-Motoren am BrickPi3, **2 Ketten**, angetrieben am **vorderen Kettenende**
-  (dort sitzt der Motor). Ports: **A = links, D = rechts**. Länge/Breite/Kettenabstand noch messen.
+  (dort sitzt der Motor). Ports: **A = links, D = rechts**.
+- **Maße (gemessen 2026-11-04):** außen über alles mit überstehenden Teilen **16,5 cm lang, 19,5 cm breit**.
+  Ketten mittig unter dem Roboter (Drehmitte = Mitte), **Kettenmitten 15 cm auseinander**.
+  „Vorderkante“ = vorderster Punkt = Vorderseite des vorderen Ultraschalls (ragt 1 cm über das Gehäuse).
+  Beim Drehen auf der Stelle beschreiben die Ecken einen Kreis mit 12,8 cm Radius; bis zur Wand sind es von der
+  Kachelmitte 14 cm, es bleiben also nur ca. 1,2 cm Luft (steht er nicht mittig, streift er).
 - Sensoren an den GPIOs des Pi:
-  - 1× RGB-Farbsensor nach unten, **vorne mittig, ca. 2 cm hinter der Vorderkante**.
+  - 1× RGB-Farbsensor nach unten, **vorne mittig, 1,5 cm hinter der Vorderkante, 1,5 cm über dem Boden**.
     **Bestätigt:** erkennt die Farbe einer Kachel, bevor der Roboter zur Hälfte drauf ist
     (also bevor sie als „befahren“ zählt, Regel 5.4.4). Schwarz/Rot: erkennen, anhalten, zurück.
     **TCS34725** bestätigt (I2C-Bus 1, Adresse 0x29, ID 0x44). Liefert Werte (Stand 2026-11-03).
@@ -46,8 +51,11 @@
     Stand 2026-11-03: **vorne** misst (stabil ±0,5 cm), **links** geprüft (3–68 cm, folgt der Hand,
     ~2 % ohne Echo, vereinzelte Ausreißer), **rechts** geprüft (14–66 cm, ~4 % ohne Echo;
     Nahbereich < 14 cm noch nicht getestet).
-    **Einbau:** vorne mittig, 3 cm hinter der Vorderkante; links und rechts in der Längsmitte,
-    je 2 cm von der Seitenkante nach innen.
+    **Einbau (gemessen 2026-11-04):** vorne mittig an der Vorderkante, 7 cm hoch; links und rechts vorne,
+    1 cm hinter der Vorderkante, je 2 cm von der Seitenkante nach innen, 10 cm hoch (rechts gespiegelt zu links).
+    Die Seitensensoren sitzen damit 7,25 cm vor der Drehmitte (`US_SIDE_AHEAD_CM`).
+    **Zuordnung am 2026-11-04 geprüft** (Hand nacheinander vor vorne, links, rechts: jeweils nur der richtige
+    Sensor reagiert, über die Werte des laufenden Dienstes auf der Webseite).
 - Lüfter am **Fan-Anschluss des Pi 5** (Kernel-Gerät `pwmfan`, Drehzahl lesbar in U/min).
 - Kamera vorhanden, Nutzung noch offen
 - Sprache: Python
@@ -202,7 +210,9 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Ausgleichsgerade geschätzt, wie schräg er am Kachelende steht (was die Lenkung selbst gedreht hat,
   rechnen die Encoder heraus). Am Kachelende dreht er sich um diesen Winkel auf der Stelle gerade
   (ab `HEADING_FIX_MIN_DEG`, höchstens `HEADING_FIX_MAX_DEG`). Eine oder keine Wand: keine Korrektur.
-  Kein Wandkontakt. **Wird durch das Gyro ersetzt, sobald es umgesetzt ist** (dann nur noch Rückfall ohne Gyro).
+  Kein Wandkontakt. **Hebel herausgerechnet** (entschieden 2026-11-04): die Seitensensoren sitzen vor der
+  Drehmitte, dreht die Lenkung, verschiebt das die Messung sofort um `US_SIDE_AHEAD_CM` · sin(Drehung laut
+  Encoder); das wird vor der Ausgleichsgeraden abgezogen. **Wird durch das Gyro ersetzt, sobald es umgesetzt ist** (dann nur noch Rückfall ohne Gyro).
 - **Gyro MPU-6050 – NOCH UMZUSETZEN** (Art und Weise entschieden 2026-11-03, Code noch nicht gebaut):
   - **Dateien:** `hardware/gyro.py` (Treiber) und `tools/test_gyro.py` (Live-Anzeige; findet Achse und Vorzeichen,
     wenn man den Roboter von Hand dreht; misst den Skalierungsfaktor). Ergebnisse als Werte in `config.py`

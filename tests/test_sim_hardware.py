@@ -45,8 +45,8 @@ class SensorTest(unittest.TestCase):
         tiles = [{"x": x, "y": y, "walls": "W" if (x, y) == (1, 0) else ""} for x in range(3) for y in range(2)]
         hw = SimHardware(SimWorld.from_dict({"width": 3, "height": 2, "start": [1, 0], "tiles": tiles}))
         values = []
-        for y in range(15, 40):
-            hw.body.y = y * 1.0
+        for i in range(100):
+            hw.body.y = 15 + i * 0.25
             values.append(hw.body.distance("left"))
         steps = [b - a for a, b in zip(values, values[1:])]
         self.assertTrue(all(s >= -1e-9 for s in steps))        # wird nur größer
@@ -76,9 +76,13 @@ class DrivingTest(unittest.TestCase):
     def test_forward_straightens_in_corridor(self):
         """Schräg losgefahren: am Kachelende dreht er sich nach den Seitenwänden gerade."""
         hw = SimHardware(corridor(4))
-        hw.body.heading = 6.0
-        result = SimDrivingRobot(hw).forward({TileType.BLACK})
+        hw.body.heading = 10.0      # so schräg, dass nach dem Lenken noch mehr als HEADING_FIX_MIN_DEG übrig ist
+        robot = SimDrivingRobot(hw)
+        turns = []
+        robot.trace = lambda what, **v: turns.append(v["dreht"]) if what == "schräglage" else None
+        result = robot.forward({TileType.BLACK})
         self.assertIs(result.status, MoveStatus.OK)
+        self.assertNotEqual(turns, [0.0])
         self.assertAlmostEqual(hw.body.heading, 0.0, delta=1.0)
 
     def test_blocked_tracks_do_not_hang(self):

@@ -191,13 +191,15 @@ class HeadingEstimate:
     Die Abweichung (links − rechts) / 2 ändert sich pro gefahrenem cm um sin(Schrägwinkel). Was die
     Lenkung selbst dreht, zeigen die Encoder und wird abgezogen; übrig bleibt der Winkel beim Start,
     geschätzt per Ausgleichsgerade. Schrägstand am Ende = Winkel beim Start + Drehung laut Encoder.
+    Die Seitensensoren sitzen US_SIDE_AHEAD_CM vor der Drehmitte: dreht die Lenkung, verschiebt das die
+    Messung sofort um US_SIDE_AHEAD_CM · sin(Drehung); das wird ebenfalls abgezogen.
     """
 
     def __init__(self):
         self.at = 0.0           # gefahrene cm beim letzten track()
         self.angle = 0.0        # Drehung seit dem Start laut Encoder (rad, positiv = nach rechts)
         self.drift = 0.0        # dadurch seitlich gewandert (cm)
-        self.samples: list[tuple[float, float]] = []   # (gefahrene cm, Abweichung ohne Encoder-Anteil)
+        self.samples: list[tuple[float, float]] = []   # (gefahrene cm, Abweichung ohne Encoder-Anteil und Hebel)
 
     def track(self, travelled: float, enc: tuple[float, float]):
         """Bei jedem Schleifendurchlauf: enc = Encodergrad seit dem Start."""
@@ -207,7 +209,8 @@ class HeadingEstimate:
 
     def sample(self, offset: float):
         """Neue Abweichung, während beide Wände zählen."""
-        self.samples.append((self.at, offset - self.drift))
+        lever = config.US_SIDE_AHEAD_CM * math.sin(self.angle)
+        self.samples.append((self.at, offset - self.drift - lever))
 
     def degrees(self) -> float | None:
         """Schrägstand jetzt in Grad (positiv = nach rechts gedreht), None = zu wenig Messungen."""

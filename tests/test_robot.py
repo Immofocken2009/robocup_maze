@@ -184,15 +184,16 @@ class HelperTest(unittest.TestCase):
         self.assertIsNone(stop_distance(config.FRONT_TRUST_CM + 1, 0))
 
     def test_heading_estimate(self):
-        """Schräg (4° nach rechts) durch den Gang, dabei lenkt er sich laut Encoder um 3° zurück."""
+        """Schräg (4° nach rechts) durch den Gang, dabei lenkt er sich laut Encoder um 3° zurück.
+        Die Seitensensoren sitzen vor der Drehmitte und wandern beim Lenken mit."""
         h = HeadingEstimate()
         deg_per_degree = config.MOTOR_DEG_PER_90 / 90 * 2     # Encoderunterschied pro Grad Drehung
-        offset = 0.5
+        offset = 0.5                                        # Drehmitte, seitlich
         for i in range(13):
             s = 2.0 * i
             angle = 4.0 - 3.0 * s / 24                      # wahrer Schrägstand
             h.track(s, (-deg_per_degree * (4.0 - angle), 0.0))
-            h.sample(offset)
+            h.sample(offset + config.US_SIDE_AHEAD_CM * math.sin(math.radians(angle)))
             offset += math.sin(math.radians(angle)) * 2.0
         self.assertAlmostEqual(h.degrees(), 1.0, delta=0.1)
 

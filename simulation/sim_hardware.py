@@ -152,7 +152,7 @@ class SimBody:
             px, py = self.point(0, LENGTH / 2 - config.US_FRONT_INSET_CM)
             return px, py, fx, fy
         sign = -1 if side == "left" else 1
-        px, py = self.point(sign * (WIDTH / 2 - config.US_SIDE_INSET_CM), 0)
+        px, py = self.point(sign * (WIDTH / 2 - config.US_SIDE_INSET_CM), config.US_SIDE_AHEAD_CM)
         return px, py, sign * rx, sign * ry
 
     def distance(self, side: str) -> float:
