@@ -4,6 +4,7 @@ Roboterdienst vorher stoppen (er belegt die Pins):  sudo systemctl stop robocup-
 Starten (im Projektordner):
     python3 -m tools.calibrate_ultrasonic           # alle drei
     python3 -m tools.calibrate_ultrasonic links     # nur einen (vorne, links oder rechts), die anderen bleiben
+    python3 call.py --ultrasonicL                   # dasselbe über call.py (L, R, V = links, rechts, vorne)
 Für jeden Sensor ein ebenes Brett (mindestens ca. 20 × 15 cm) nacheinander in 5, 10, 20 und 40 cm Abstand gerade vor
 den Sensor stellen, gemessen von der Vorderseite des Sensors, jeweils Enter drücken. Das Programm legt je Sensor eine
 Gerade durch die Messungen (richtig = Faktor × gemessen + Versatz) und speichert sie in data/ultrasonic.json
@@ -14,6 +15,8 @@ import json
 import statistics
 import sys
 from datetime import datetime
+
+import lgpio
 
 import config
 from hardware.ultrasonic import NAMES, SIDES, Ultrasonic
@@ -65,15 +68,13 @@ def calibrate_side(us: Ultrasonic, side: str) -> dict:
             "points": [[round(m, 2), t] for m, t in points]}
 
 
-def main():
-    names = {name: side for side, name in NAMES.items()}
-    wanted = sys.argv[1:]
-    unknown = [w for w in wanted if w not in names]
-    if unknown:
-        print(__doc__)
+def run(sides: list[str]):
+    """Die gewählten Sensoren ("front", "left", "right") kalibrieren und speichern (auch von call.py benutzt)."""
+    try:
+        us = Ultrasonic(calibration_file=None)      # Rohwerte
+    except lgpio.error as e:
+        print(f"Ultraschall-Pins nicht frei ({e}). Läuft der Roboterdienst? Erst: sudo systemctl stop robocup-robot")
         return
-    sides = [names[w] for w in wanted] or list(SIDES)
-    us = Ultrasonic(calibration_file=None)      # Rohwerte
     try:
         results = {side: calibrate_side(us, side) for side in sides}
     except KeyboardInterrupt:
@@ -99,6 +100,15 @@ def main():
             d = data[side]
             print(f"  {NAMES[side]:<7} Faktor {d['factor']:.4f}  Versatz {d['offset']:+.2f} cm  "
                   f"größte Abweichung {d['max_error_cm']:.2f} cm")
+
+
+def main():
+    names = {name: side for side, name in NAMES.items()}
+    wanted = sys.argv[1:]
+    if any(w not in names for w in wanted):
+        print(__doc__)
+        return
+    run([side for side in SIDES if NAMES[side] in wanted] if wanted else list(SIDES))
 
 
 if __name__ == "__main__":

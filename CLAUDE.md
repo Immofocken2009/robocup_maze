@@ -82,6 +82,7 @@ robocup/
 ├── CLAUDE.md
 ├── config.py              # alle Einstellungen: Pins, Maße, Schwellwerte, Zeiten
 ├── main.py                # Roboterprogramm: wartet auf K1, fährt den Wettkampflauf
+├── call.py                # Programme aufrufen: --ultrasonicL/R/V = Ultraschall links/rechts/vorne kalibrieren
 ├── robocup-web.service    # systemd: Webseite beim Booten starten
 ├── robocup-robot.service  # systemd: main.py beim Booten starten
 ├── hardware/              # spricht direkt mit der Hardware
@@ -403,7 +404,9 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 - Taster testen: `python3 -m tools.test_buttons`
 - Ultraschall testen: `python3 -m tools.test_ultrasonic`
-- Ultraschall kalibrieren: `python3 -m tools.calibrate_ultrasonic` (nur einer: `... links`) → `data/ultrasonic.json`
+- Ultraschall kalibrieren: `python3 -m tools.calibrate_ultrasonic` (nur einer: `... links`) → `data/ultrasonic.json`,
+  oder einzeln über `python3 call.py --ultrasonicL` / `--ultrasonicR` / `--ultrasonicV` (links/rechts/vorne, auch mehrere).
+  **Ohne sudo starten**, sonst gehören `data/` und die Datei root und spätere Läufe können nicht speichern.
 - Farbsensor kalibrieren: `python3 -m tools.calibrate_color` (nur Live-Anzeige: `--test`) → `data/colors.json`
 - Motoren einmessen (Roboter fährt!): `python3 -m tools.test_motors richtung|strecke|drehen`
   → Werte für `MOTOR_DIRECTION`, `MOTOR_DEG_PER_CM`, `MOTOR_DEG_PER_90` in `config.py`
