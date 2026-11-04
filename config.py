@@ -57,8 +57,8 @@ COLOR_NAMES = ("white", "black", "blue", "silver", "red")
 COLOR_STOP_COUNT = 2            # so viele Messungen hintereinander schwarz/rot, bevor angehalten wird
 
 # --- Motoren (BrickPi3) --------------------------------------------------------
-MOTOR_PORTS = {"left": "B", "right": "C"}   # rechts = C geprüft 2026-11-04, links = B noch prüfen
-MOTOR_DIRECTION = {"left": 1, "right": -1}  # -1, wenn die Kette bei positiver Drehzahl rückwärts läuft. Rechts geprüft, links MESSEN!
+MOTOR_PORTS = {"left": "B", "right": "C"}   # geprüft 2026-11-04
+MOTOR_DIRECTION = {"left": -1, "right": -1}  # -1, wenn die Kette bei positiver Drehzahl rückwärts läuft. Geprüft 2026-11-04
 MOTOR_DEG_PER_CM = 30.0     # Encodergrad pro cm Fahrstrecke. MESSEN! (tools.test_motors)
 MOTOR_DEG_PER_90 = 450.0    # Encodergrad je Kette für eine 90°-Drehung auf der Stelle. MESSEN!
 

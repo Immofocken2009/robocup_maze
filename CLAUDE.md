@@ -18,8 +18,8 @@
 - BrickPi3 (SPI, `/dev/spidev0.1`, belegt GPIO 7–11), Bibliothek `brickpi3` ist installiert
 - Antrieb: große LEGO-Motoren am BrickPi3, **2 Ketten**, angetrieben am **vorderen Kettenende**
   (dort sitzt der Motor). Ports (geändert 2026-11-04): **B = links, C = rechts**.
-  Rechts = C am 2026-11-04 geprüft: läuft bei positiver Drehzahl rückwärts, daher `MOTOR_DIRECTION` rechts = −1
-  (danach über `hardware/motors.py` vorwärts bestätigt). Links = B: Port und Richtung noch prüfen.
+  Beide am 2026-11-04 geprüft: laufen bei positiver Drehzahl rückwärts, daher `MOTOR_DIRECTION` = −1 für beide
+  (danach je Kette über `hardware/motors.py` vorwärts bestätigt).
 - **Maße (gemessen 2026-11-04):** außen über alles mit überstehenden Teilen **16,5 cm lang, 19,5 cm breit**.
   Ketten mittig unter dem Roboter (Drehmitte = Mitte), **Kettenmitten 15 cm auseinander**,
   **Ketten von Achse zu Achse 10,5 cm lang** (beide gleich). Wird im Code nicht gebraucht: wie weit die Ketten
