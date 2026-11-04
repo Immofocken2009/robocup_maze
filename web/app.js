@@ -569,12 +569,8 @@ const sim = {
 
   updateWorldInfo() {
     const world = this.world;
-    const parts = [world.name];
-    if (world.seed !== null && world.seed !== undefined) parts.push(`Seed ${world.seed}`);
-    parts.push(`${world.width} × ${world.height}`, `${world.reachable} erreichbare Kacheln`);
-    if (world.floating) parts.push(`${world.floating} davon floating`);
-    $("maze-info").textContent = parts.join(", ") + (world.saved ? "" : " (nicht gespeichert)");
     $("btn-save").disabled = world.saved;
+    $("btn-save").title = world.saved ? "Schon gespeichert" : "Dieses Labyrinth speichern";
     setList($("notes"), world.notes);
   },
 

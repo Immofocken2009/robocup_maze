@@ -340,6 +340,18 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - Keine Web-Schriften (Pi evtl. ohne Internet), Systemschrift, Zahlen mit fester Breite.
 - Keine Karten mit Schatten, keine Großbuchstaben-Überschriften, keine Monospace-Labels, keine Verläufe.
 - Hell- und Dunkelmodus, auf dem Handy einspaltig, reduzierte Bewegung wird respektiert.
+- **Aufgeräumt am 2026-11-04** (Vorgabe Projektinhaber: „schicker, ohne unnötige Infos“), gleicher Stil, saubere Gruppierung:
+  - **Entfernt:** die Labyrinth-Infozeile in der Simulation (Name, Seed, Größe, erreichbare Kacheln, davon floating,
+    „nicht gespeichert“). Seed und Größe stehen weiter im Erzeugen-Formular und in der gespeicherten JSON-Datei, der
+    Server schickt sie weiter mit; der Speichern-Knopf ist ausgegraut, wenn das Labyrinth schon gespeichert ist.
+    Alles andere (Rohwerte, Abschnitt „System“, Hilfetexte) bleibt, bis der Projektinhaber etwas Weiteres benennt.
+  - **Aufbau:** Ansichten als Reiter mit gelber Linie unter dem aktiven; Seitenspalte durch eine senkrechte Linie
+    abgesetzt, ihre Abschnitte durch Linien getrennt (keine Kartenkästen); „Jetzt“-Zeile mit gelbem Balken wie der
+    Roboter; Uhr mit großer Zeit; Akku und CPU als kleine Beschriftung über dem Wert; Ereignisse mit Trennlinien.
+  - **Technik:** `color-scheme: light dark` (dunkle Eingabefelder im Dunkelmodus); auf Touchgeräten größere
+    Tippflächen; auf schmalen Bildschirmen stehen die Reiter über die ganze Breite unter dem Titel.
+  - **Achtung:** `.stage` bekommt kein Padding, die Karte (`MapCanvas.resize`) misst die Breite ihres Elternelements.
+    Jede ID, die `app.js` mit `$("...")` anspricht, muss in `index.html` stehen, sonst bricht die Ansicht still ab.
 
 ### Zufallslabyrinthe (`simulation/maze_generator.py`)
 

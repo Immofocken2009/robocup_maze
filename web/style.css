@@ -1,11 +1,15 @@
 /* Farben aus dem echten Feld: weiße Kacheln, Holzwände, LEGO-gelber Roboter.
-   Die Oberfläche drumherum bleibt kühl und zurückhaltend. */
+   Die Oberfläche drumherum bleibt kühl und zurückhaltend: Gruppen durch Linien und Abstand,
+   keine Schatten, keine Verläufe, keine Karten. */
 :root {
+  color-scheme: light dark;
+
   --page: #f4f5f5;
   --ink: #1f2a30;
   --muted: #5e6a70;
   --rule: #d5dadd;
   --control: #ffffff;
+  --control-hover: #eceff0;
 
   --tile: #ffffff;
   --unknown: #cdd2d5;
@@ -20,7 +24,7 @@
   --silver: #bfc6cc;
   --red: #c8352b;
 
-  --radius: 4px;
+  --radius: 6px;
   font-size: 15px;
 }
 
@@ -31,6 +35,7 @@
     --muted: #9aa5ab;
     --rule: #333c41;
     --control: #232a2e;
+    --control-hover: #2d363b;
 
     --tile: #2c3439;
     --unknown: #20272b;
@@ -49,35 +54,47 @@
 
 body {
   margin: 0;
-  padding: 20px 24px 32px;
+  padding: 0 28px 40px;
   background: var(--page);
   color: var(--ink);
   font: 1rem/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-variant-numeric: tabular-nums;
 }
 
-h1 { margin: 0; font-size: 1.2rem; font-weight: 600; }
-h2 { margin: 0 0 .5rem; font-size: 1rem; font-weight: 600; }
+h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+h2 { margin: 0 0 .65rem; font-size: .95rem; font-weight: 600; }
 p { margin: 0; }
 
 .muted { color: var(--muted); }
 .small { font-size: .87rem; }
 
+/* --- Kopf: Titel, Ansichten als Reiter, Verbindung ---------------------------- */
+
 .top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: .75rem 1.5rem;
-  margin-bottom: 1.25rem;
+  gap: 0 2rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--rule);
 }
 .conn { color: var(--muted); font-size: .87rem; margin-left: auto; }
 
-/* Umschalter Roboter / Simulation */
-.views { display: flex; }
-.views button { border-radius: 0; margin-left: -1px; }
-.views button:first-child { border-radius: var(--radius) 0 0 var(--radius); margin-left: 0; }
-.views button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
-.views button[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: var(--page); }
+.views { display: flex; gap: .25rem; }
+.views button {
+  min-height: 3rem;
+  padding: 0 .9rem;
+  background: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  margin-bottom: -1px;
+}
+.views button:hover:not(:disabled) { background: none; color: var(--ink); border-bottom-color: var(--rule); }
+.views button[aria-selected="true"],
+.views button[aria-selected="true"]:hover:not(:disabled) { color: var(--ink); border-bottom-color: var(--robot); }
+
 .conn.ok::before, .conn.off::before {
   content: "";
   display: inline-block;
@@ -89,11 +106,10 @@ p { margin: 0; }
 }
 .conn.off::before { background: var(--red); }
 
+/* Feld links, Seitenspalte rechts. Das Feld bekommt kein Padding: die Karte misst die Breite ihres Elternelements. */
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 19rem;
-  gap: 2.5rem;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) 24rem;
 }
 
 /* --- Bedienelemente -------------------------------------------------------- */
@@ -105,12 +121,13 @@ button, select, input {
   border: 1px solid var(--rule);
   border-radius: var(--radius);
 }
-button, select { min-height: 2.25rem; padding: 0 .8rem; }
-input[type="number"], input[type="text"] { min-height: 2.25rem; padding: 0 .5rem; width: 100%; }
+button, select { min-height: 2.4rem; padding: 0 .9rem; }
+input[type="number"], input[type="text"] { min-height: 2.4rem; padding: 0 .55rem; width: 100%; }
 button { cursor: pointer; }
-button:hover:not(:disabled) { border-color: var(--muted); }
+button:hover:not(:disabled) { background: var(--control-hover); border-color: var(--muted); }
 button:disabled, select:disabled { opacity: .45; cursor: default; }
 button.primary { background: var(--ink); border-color: var(--ink); color: var(--page); }
+button.primary:hover:not(:disabled) { background: var(--ink); border-color: var(--ink); opacity: .85; }
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 input[type="range"] { accent-color: var(--ink); width: 8rem; }
 
@@ -119,56 +136,64 @@ label { color: var(--muted); }
 .stack { display: flex; flex-direction: column; gap: .3rem; margin-top: 1rem; }
 .check { display: flex; align-items: center; gap: .4rem; }
 
+@media (prefers-reduced-motion: no-preference) {
+  button, select, input { transition: background-color .12s, border-color .12s, color .12s; }
+}
+
 /* --- Feld ------------------------------------------------------------------ */
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: .75rem 1.5rem;
-  margin-bottom: 1rem;
+  gap: .75rem 1.75rem;
+  margin-bottom: 1.1rem;
 }
 .run { display: flex; gap: .4rem; }
 .speed output { color: var(--ink); min-width: 2.5rem; }
-.clock { margin-left: auto; display: flex; flex-direction: column; gap: .3rem; min-width: 9rem; }
-.clock b { font-weight: 600; }
-.timebar { height: 4px; background: var(--rule); border-radius: 2px; overflow: hidden; }
+
+/* Uhr: große Zeit, darunter der Balken */
+.clock { margin-left: auto; display: flex; flex-direction: column; gap: .35rem; min-width: 10rem; color: var(--muted); }
+.clock b { font-size: 1.35rem; font-weight: 600; color: var(--ink); line-height: 1.2; }
+.timebar { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
 .timebar-fill { height: 100%; width: 0; background: var(--ink); }
 .timebar-fill.low { background: var(--red); }
 
 /* Roboter-Ansicht */
-.status { font-size: 1.05rem; }
+.status { font-size: 1.25rem; }
 .status b { font-weight: 600; }
-.warnings { list-style: none; margin: 0 0 .75rem; padding: 0; color: var(--red); }
+.warnings { list-style: none; margin: 0 0 1rem; padding: 0; color: var(--red); }
 .warnings li { padding: .15rem 0 .15rem .6rem; border-left: 3px solid var(--red); margin-bottom: .25rem; }
-.now { margin-bottom: .9rem; padding: .5rem 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
-.now p { margin-top: .1rem; }
-.action { font-size: 1.3rem; font-weight: 600; }
+.warnings:empty { display: none; }
+
+/* Was der Roboter gerade tut: der wichtigste Satz der Seite, mit gelbem Balken wie der Roboter */
+.now { margin: 0 0 1.1rem; padding: .1rem 0 .1rem .9rem; border-left: 4px solid var(--robot); }
+.now p { margin-top: .05rem; }
+.action { font-size: 1.5rem; font-weight: 600; line-height: 1.25; }
 .strong { font-weight: 600; }
-.keys { margin-top: .6rem; }
-.battery b { font-weight: 600; }
+.keys { margin-top: .75rem; }
+
+/* Akku und CPU: kleine Beschriftung, darunter der Wert */
+.battery { display: flex; flex-direction: column; line-height: 1.25; color: var(--muted); font-size: .82rem; }
+.battery b { font-size: 1.05rem; font-weight: 600; color: var(--ink); }
 .battery b.low { color: var(--red); }
+
 /* Motorleistung als schmaler Balken, 0–100 % */
 .meter { display: inline-block; width: 3.5rem; height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
 .meter i { display: block; height: 100%; width: 0; background: var(--ink); }
 
 canvas { display: block; max-width: 100%; }
 
-.below {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: .5rem 1rem;
-  margin-top: .75rem;
-}
+.below { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-top: .85rem; }
 
 .legend {
   list-style: none;
-  margin: .75rem 0 0;
-  padding: 0;
+  margin: 1rem 0 0;
+  padding: .85rem 0 0;
+  border-top: 1px solid var(--rule);
   display: flex;
   flex-wrap: wrap;
-  gap: .35rem 1.1rem;
+  gap: .35rem 1.2rem;
   color: var(--muted);
   font-size: .87rem;
 }
@@ -195,15 +220,23 @@ canvas { display: block; max-width: 100%; }
 .ln.truth { border-top: 1px solid var(--truth); }
 .ln.beam { border-top: 1px dashed var(--muted); }
 
-/* --- Seitenspalte ---------------------------------------------------------- */
+/* --- Seitenspalte: eine senkrechte Linie, Abschnitte durch Linien getrennt -------- */
 
-.side { display: flex; flex-direction: column; gap: 1.75rem; }
+.side {
+  display: flex;
+  flex-direction: column;
+  margin-left: 2rem;
+  padding-left: 2rem;
+  border-left: 1px solid var(--rule);
+}
+.side section + section { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
 
-dl { display: grid; grid-template-columns: 1fr auto; gap: .25rem 1rem; margin: 0; }
+dl { display: grid; grid-template-columns: 1fr auto; gap: .3rem 1rem; margin: 0; }
 dt { color: var(--muted); }
 dd { margin: 0; display: flex; justify-content: flex-end; align-items: center; gap: .45rem; text-align: right; }
 
-.score .sum { padding-top: .35rem; margin-top: .2rem; border-top: 1px solid var(--rule); color: var(--ink); font-weight: 600; }
+.score .sum { padding-top: .4rem; margin-top: .25rem; border-top: 1px solid var(--rule); color: var(--ink); font-weight: 600; }
+.score dd.sum { font-size: 1.15rem; }
 #sc-lop:empty { display: none; }
 #sc-lop { margin-top: .4rem; }
 
@@ -221,15 +254,16 @@ dd { margin: 0; display: flex; justify-content: flex-end; align-items: center; g
 .gen {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: .6rem .75rem;
+  gap: .65rem .75rem;
 }
 .gen label { display: flex; flex-direction: column; gap: .25rem; }
 .gen .wide { grid-column: 1 / -1; }
 .sizes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .35rem; }
-.sizes button { min-height: 1.9rem; padding: 0 .55rem; font-size: .87rem; }
+.sizes button { min-height: 1.9rem; padding: 0 .6rem; font-size: .87rem; border-radius: 999px; }
 .actions { display: flex; gap: .4rem; }
 
 .notes { list-style: none; margin: .6rem 0 0; padding: 0; color: var(--muted); font-size: .87rem; }
+.notes:empty { display: none; }
 
 .events {
   list-style: none;
@@ -239,8 +273,8 @@ dd { margin: 0; display: flex; justify-content: flex-end; align-items: center; g
   overflow-y: auto;
   font-size: .87rem;
 }
-.events li { padding: .1rem 0; }
-.events li:first-child { font-weight: 600; }
+.events li { padding: .3rem 0; border-top: 1px solid var(--rule); }
+.events li:first-child { border-top: 0; padding-top: 0; font-weight: 600; }
 
 /* --- Aufzeichnung ---------------------------------------------------------- */
 
@@ -248,9 +282,9 @@ dd { margin: 0; display: flex; justify-content: flex-end; align-items: center; g
 .link[aria-disabled="true"] { color: var(--muted); pointer-events: none; text-decoration: none; }
 .player { margin-bottom: .5rem; }
 .lg-time b { font-weight: 600; }
-input[type="range"].timeline { width: 100%; margin: 0 0 1rem; }
-.block-title { margin-top: 1.5rem; }
-.block { margin-top: 1.75rem; }
+input[type="range"].timeline { width: 100%; margin: 0 0 1.1rem; }
+.block-title { margin-top: 1.75rem; }
+.block { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
 .ln.p1 { border-top: 2px solid var(--ink); }
 .ln.p2 { border-top: 2px solid var(--blue); }
 .ln.p3 { border-top: 2px solid var(--wall); }
@@ -278,8 +312,24 @@ table.raw tr.future td { color: var(--muted); opacity: .7; }
 .calc .old { opacity: .55; }
 .calc dl, #lg-inputs { font-size: .87rem; }
 
+/* --- Schmale Bildschirme: eine Spalte, größere Tippflächen ---------------------- */
+
+@media (pointer: coarse) {
+  button, select { min-height: 2.75rem; }
+}
+
 @media (max-width: 900px) {
-  body { padding: 16px; }
-  .layout { grid-template-columns: 1fr; gap: 2rem; }
+  body { padding: 0 16px 32px; }
+  .layout { grid-template-columns: 1fr; }
+  .side { margin: 2rem 0 0; padding: 1.5rem 0 0; border-left: 0; border-top: 1px solid var(--rule); }
   .clock { margin-left: 0; width: 100%; }
+}
+
+@media (max-width: 700px) {
+  /* Titel und Verbindung oben, darunter die Reiter über die ganze Breite */
+  .top { border-bottom: 0; gap: 0 1rem; margin-bottom: 1.1rem; }
+  .top h1 { padding: .7rem 0 .2rem; }
+  .conn { order: 1; padding-top: .5rem; }
+  .views { order: 2; width: 100%; border-bottom: 1px solid var(--rule); }
+  .views button { flex: 1; padding: 0 .4rem; }
 }
