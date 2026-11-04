@@ -13,6 +13,7 @@
       <button type="button" role="tab" id="tab-robot" aria-controls="view-robot" aria-selected="true">Roboter</button>
       <button type="button" role="tab" id="tab-sim" aria-controls="view-sim" aria-selected="false">Simulation</button>
       <button type="button" role="tab" id="tab-log" aria-controls="view-log" aria-selected="false">Aufzeichnung</button>
+      <button type="button" role="tab" id="tab-net" aria-controls="view-net" aria-selected="false">Netzwerk</button>
     </nav>
     <span id="conn" class="conn">Verbinde …</span>
   </header>
@@ -303,6 +304,51 @@
       <section>
         <h2>Ereignisse</h2>
         <ol id="lg-events" class="events"></ol>
+      </section>
+    </aside>
+  </div>
+
+  <!-- Netzwerk ----------------------------------------------------------------->
+  <div id="view-net" class="layout" role="tabpanel" aria-labelledby="tab-net" hidden>
+    <main class="stage">
+      <div class="toolbar">
+        <p class="status"><b id="nt-headline">–</b></p>
+        <button type="button" id="nt-scan">Netze suchen</button>
+      </div>
+
+      <ul id="nt-messages" class="warnings" aria-live="polite"></ul>
+      <div id="nt-setup" class="setup" hidden>
+        <p>Der Webserver darf das Netzwerk noch nicht ändern. Einmal am Pi einrichten:</p>
+        <span id="nt-setup-command" class="command"></span>
+      </div>
+
+      <h2>Netze in der Nähe</h2>
+      <ul id="nt-nets" class="nets"></ul>
+      <p id="nt-empty" class="muted" hidden>Keine Netze gefunden. „Netze suchen“ startet eine neue Suche.</p>
+    </main>
+
+    <aside class="side">
+      <section>
+        <h2>Verbindung</h2>
+        <dl id="nt-info"></dl>
+        <p class="muted small keys">Ist das Kabel eingesteckt, nutzt der Pi immer LAN.</p>
+        <p id="nt-note" class="muted small" hidden>Hängt dieses Gerät über WLAN am Pi, bricht die Seite beim Wechsel des Netzes ab.</p>
+      </section>
+
+      <section>
+        <h2>Gespeichert</h2>
+        <ul id="nt-saved" class="nets"></ul>
+        <p id="nt-saved-empty" class="muted small" hidden>Noch keine gespeicherten Netze.</p>
+      </section>
+
+      <section>
+        <h2>Verstecktes Netz</h2>
+        <form id="nt-hidden" class="gen">
+          <label class="wide">Netzname <input type="text" name="ssid" autocomplete="off" required></label>
+          <label class="wide">Passwort <input type="password" name="password" autocomplete="new-password"></label>
+          <label class="check wide"><input type="checkbox" id="nt-show-hidden"> Passwort anzeigen</label>
+          <div class="actions wide"><button type="submit" class="primary">Verbinden</button></div>
+        </form>
       </section>
     </aside>
   </div>

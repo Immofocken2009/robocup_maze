@@ -86,6 +86,7 @@ robocup/
 │                          #   --rgb [farbe ...] = Farbsensor einmessen; später auch Gyro (GEPLANT)
 ├── robocup-web.service    # systemd: Webseite beim Booten starten
 ├── robocup-robot.service  # systemd: main.py beim Booten starten
+├── robocup-network.rules  # polkit: erlaubt dem Webserver (User immo) WLAN-Verbindungen anzulegen (einmal installieren)
 ├── hardware/              # spricht direkt mit der Hardware
 │   ├── motors.py          #   BrickPi3: fahren, drehen
 │   ├── ultrasonic.py      #   3× Ultraschall
@@ -106,7 +107,7 @@ robocup/
 │   ├── maze_generator.py  #   Zufallslabyrinthe nach Regelwerk 2026
 │   └── mazes/             #   Testlabyrinthe als JSON
 ├── web/                   # Webseite (flach)
-│   ├── server.py          #   aiohttp: liefert Seite + WebSocket
+│   ├── server.py          #   aiohttp: liefert Seite + WebSocket, WLAN-Verwaltung über nmcli (/api/network)
 │   ├── index.html
 │   ├── app.js
 │   └── style.css
@@ -327,6 +328,30 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
     Dafür laufen alle Zeiten des Fahrcodes über die austauschbare Uhr (auch das Bodenmessen im Stand).
   - **Anschauen:** Webseite, dritter Reiter „Aufzeichnung“: Lauf auswählen, Zeitleiste (abspielen, spulen,
     Aktion vor/zurück), Karte, Werte und Rechnung zum Zeitpunkt, Diagramme, Rohdaten um den Zeitpunkt, Download.
+- **Netzwerk / WLAN über die Webseite** (entschieden 2026-11-04, Vorgabe Projektinhaber: WLAN-Verbindungen anlegen,
+  damit nicht immer ein Kabel nötig ist; **ist LAN da, wird LAN genutzt**):
+  - **Vierter Reiter „Netzwerk“** (`web/index.html`, `web/app.js`, Code in `web/server.py`, Pfade `/api/network`,
+    `/api/network/scan`, `/connect`, `/forget`): Status (LAN/WLAN, Netzname, IP, was genutzt wird), Netze in der Nähe
+    suchen und verbinden, verstecktes Netz von Hand eintragen, gespeicherte Netze anzeigen und löschen.
+  - **Technik:** NetworkManager über `nmcli` (ohne Shell, Argumentliste), nicht blockierend (`asyncio`, Zeitlimits).
+    Das Passwort steht nur während des Aufrufs in der Befehlszeile, nie in Meldungen oder im Log; die Seite schickt
+    gespeicherte Passwörter nie zurück. Unterstützt: offen, WPA/WPA2, WPA3 (SAE); nicht: Unternehmens-WLAN (802.1X), WEP.
+  - **LAN hat Vorrang:** NetworkManager gibt LAN die Routenmetrik 100; Verbindungen, die die Seite anlegt, bekommen
+    `ipv4/ipv6.route-metric` = `NET_WIFI_METRIC` (600) ausdrücklich. Beide gleichzeitig verbunden: der Pi nutzt LAN
+    und ist trotzdem über beide Adressen erreichbar. Die Seite zeigt, was gerade genutzt wird.
+  - **Eigene Verbindungen:** heißen `robocup-<Netzname>` (`NET_WIFI_PREFIX`), laufen mit Autoverbinden und systemweit
+    gespeichertem Passwort (`psk-flags 0`, geht auch ohne angemeldeten Benutzer). Nur diese kann die Seite löschen,
+    und nur wenn sie gerade nicht verbunden sind (serverseitig geprüft, nicht nur im Browser). Schlägt das Verbinden
+    fehl (z.B. falsches Passwort), wird die neu angelegte Verbindung wieder gelöscht. Gibt es für den Namen schon eine
+    Verbindung, wird sie gestartet statt eine doppelte anzulegen. Verbindungen von netplan (z.B. „Immoh“) werden nur
+    angezeigt und gestartet: netplan baut sie beim Neustart aus `/etc/netplan` neu.
+  - **Rechte:** Der Dienst läuft ohne angemeldete Sitzung, die Systemregel von NetworkManager (polkit) erlaubt Änderungen
+    aber nur lokal angemeldeten Sitzungen. Darum `robocup-network.rules` (nur `settings.modify.system`, `network-control`,
+    `wifi.scan`, nur für `immo`). Einmal einrichten, siehe Befehle. Ohne die Regel zeigt der Reiter einen Hinweis mit dem
+    Befehl (`can_change` aus `nmcli general permissions`).
+  - **Kein Schutz** (Entscheidung Projektinhaber, wie der Rest der Seite): jeder im selben Netz kann Netze hinzufügen oder
+    löschen, das Passwort geht unverschlüsselt (http) durchs lokale Netz. Im fremden Netz (Wettkampf) bewusst bedenken.
+  - Tests: `tests/test_run_log.py` (`NetworkTest`, mit nachgebautem nmcli, nie das echte Netzwerk).
 - **Akku und Verbrauch:** Der BrickPi3 misst nur Spannungen, keinen Strom. Die Webseite zeigt die
   **Akkuspannung in V** (oben in der Leiste, Warnung unter `config.BATTERY_LOW_V`) und statt des Stroms
   die **Motorleistung in % pro Kette** (vom BrickPi3, kein echter Stromwert). Ein Strommodul
@@ -438,6 +463,10 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 - Dienste: `systemctl status robocup-robot`, Ausgaben `journalctl -u robocup-robot -f`,
   nach Codeänderungen `sudo systemctl restart robocup-robot robocup-web`
   (Läuft der Dienst, belegt er GPIO/BrickPi: vor `tools.*` oder `python3 main.py` erst `sudo systemctl stop robocup-robot`.)
+- WLAN über die Webseite einrichten (einmalig, braucht sudo; danach `sudo systemctl restart robocup-web`):
+  `sudo install -m 644 /home/immo/robocup/robocup-network.rules /etc/polkit-1/rules.d/50-robocup-network.rules`
+  prüfen: `nmcli general permissions | grep -i "modify.system\|network-control\|wifi.scan"` muss `yes` zeigen
+  rückgängig: `sudo rm /etc/polkit-1/rules.d/50-robocup-network.rules`
 - Tests: `python3 -m unittest discover -s tests`
 - Lauf nachrechnen: `python3 -m tools.replay_run` (neueste Aufzeichnung) oder `python3 -m tools.replay_run logs/<Datei>`,
   alles als Text: `--text`
@@ -471,6 +500,11 @@ Zum Gyro (vor dem Umsetzen klären):
 
 
 ## Bekannte Stolpersteine
+
+- **netplan-Profile** (`netplan-eth0`, `netplan-wlan0-<Name>`) sind aus `/etc/netplan` erzeugt: Löschen oder Ändern mit
+  `nmcli` hält nur bis zum Neustart. Darum fasst die Webseite sie nicht an.
+- `nmcli device wifi list --rescan yes` meldet auch ohne Berechtigung Erfolg und zeigt dann die alte Liste.
+- WLAN-Energiesparen ist auf `wlan0` an (`iw dev wlan0 get power_save`), kann die Live-Seite über WLAN verzögern.
 
 - **BrickPi3 verliert einzelne Schreibbefehle** (gemessen 2026-11-04, ohne zweites Programm): von zwei Nachrichten
   direkt hintereinander ging die zweite in ca. 5 % verloren; auch eine einzelne Nachricht direkt nach anderen

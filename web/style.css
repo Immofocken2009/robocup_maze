@@ -312,6 +312,31 @@ table.raw tr.future td { color: var(--muted); opacity: .7; }
 .calc .old { opacity: .55; }
 .calc dl, #lg-inputs { font-size: .87rem; }
 
+/* --- Netzwerk -------------------------------------------------------------- */
+
+.stage > h2 { margin-top: 1.5rem; }
+.nets { list-style: none; margin: 0; padding: 0; }
+.net { padding: .6rem 0; border-top: 1px solid var(--rule); }
+.net:first-child { border-top: 0; padding-top: 0; }
+.net-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; }
+.net-name { flex: 1 1 9rem; min-width: 0; overflow-wrap: anywhere; }
+.net button { min-height: 2rem; padding: 0 .75rem; font-size: .93rem; }
+.net-pass { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin-top: .6rem; }
+.net-pass input[type="password"], .net-pass input[type="text"] { width: 13rem; }
+.gen .check { flex-direction: row; align-items: center; }
+
+.setup { margin: 0 0 1rem; padding: .1rem 0 .1rem .9rem; border-left: 4px solid var(--red); }
+.command {
+  display: block;
+  margin-top: .4rem;
+  padding: .45rem .6rem;
+  background: var(--control);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 /* --- Schmale Bildschirme: eine Spalte, größere Tippflächen ---------------------- */
 
 @media (pointer: coarse) {
