@@ -27,7 +27,8 @@
   1430 Encodergrad, ca. 10–15° zu weit, also ca. 372°). Danach nur 2 Encodergrad ausgerollt (ca. 0,5°).
   Frühere Messungen: 297 (4 × 90° mit Langsamwerden: 1090 Grad = ca. 330°), 357 (360° am Stück mit Bremse:
   1250 Grad = ca. 315°; dabei lief links 1311, rechts 1188). Die Ketten rutschen beim Drehen also je nach
-  Fahrweise sehr unterschiedlich. Noch mit 4 × 90° wie im Lauf nachprüfen.
+  Fahrweise sehr unterschiedlich. **Bestätigt 2026-11-04:** 360° am Stück mit 345 (1381 Encodergrad) endet genau in
+  Startrichtung. Mit 4 × 90° wie im Lauf noch nicht geprüft.
   Die Strecke (`MOTOR_DEG_PER_CM`) wurde noch mit Langsamwerden vor dem Ziel eingemessen. Nachmessen.
 - **Maße (gemessen 2026-11-04):** außen über alles mit überstehenden Teilen **16,5 cm lang, 19,5 cm breit**.
   Ketten mittig unter dem Roboter (Drehmitte = Mitte), **Kettenmitten 15 cm auseinander**,
