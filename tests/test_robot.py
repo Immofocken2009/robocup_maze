@@ -1,4 +1,5 @@
-"""Tests für hardware/robot.py mit nachgebauter Hardware (nichts bewegt sich).
+"""Tests für hardware/robot.py (und das Abschalten in hardware/motors.py) mit nachgebauter Hardware
+(nichts bewegt sich).
 
 Der nachgebaute Roboter fährt auf einer Geraden: x = Weg der Robotermitte in cm ab der Mitte
 der Startkachel. Die Zeit läuft im Nachbau SPEEDUP-mal so schnell, damit die Tests kurz bleiben.
@@ -6,9 +7,12 @@ der Startkachel. Die Zeit läuft im Nachbau SPEEDUP-mal so schnell, damit die Te
 import math
 import time
 import unittest
+from unittest import mock
 
 import config
+import hardware.motors
 from hardware.color_sensor import classify
+from hardware.motors import Motors
 from hardware.robot import HeadingEstimate, LackOfProgress, RealRobot, RunStopped, Steering, stop_distance
 from navigation.maze_map import TileType
 from navigation.robot_interface import MoveStatus
@@ -212,6 +216,58 @@ class HelperTest(unittest.TestCase):
         self.assertEqual(classify((50, 55, 45, 150), cal), "black")
         self.assertEqual(classify((140, 280, 620, 1050), cal), "blue")
         self.assertEqual(classify((950, 260, 190, 1350), cal), "red")
+
+
+class FakeBrickPi3:
+    """BrickPi3 ohne Hardware: Port-Bits wie im Original, die ersten `lose` Schreibbefehle gehen verloren."""
+    PORT_A, PORT_B, PORT_C, PORT_D = 1, 2, 4, 8
+    MOTOR_FLOAT = -128
+    lose = 0
+
+    def __init__(self):
+        self.power = {p: 0 for p in (1, 2, 4, 8)}
+        self.sent = []
+
+    def set_motor_power(self, ports: int, power: int):
+        self.sent.append((ports, power))
+        if FakeBrickPi3.lose > 0:
+            FakeBrickPi3.lose -= 1
+            return
+        for p in self.power:
+            if ports & p:
+                self.power[p] = power
+
+    def get_motor_status(self, port: int):
+        return [0, self.power[port], 0, 0]
+
+
+class MotorsFloatTest(unittest.TestCase):
+    def make(self, lose: int) -> Motors:
+        FakeBrickPi3.lose = 0
+        with mock.patch.object(hardware.motors.brickpi3, "BrickPi3", FakeBrickPi3):
+            motors = Motors()
+        motors.bp.power = {p: 50 for p in motors.bp.power}       # beide Motoren laufen
+        motors.bp.sent.clear()
+        FakeBrickPi3.lose = lose
+        return motors
+
+    def test_both_ports_in_one_message(self):
+        motors = self.make(lose=0)
+        motors.float()
+        both = sum(motors.ports.values())
+        self.assertEqual(motors.bp.sent, [(both, FakeBrickPi3.MOTOR_FLOAT)])
+
+    def test_lost_message_is_repeated(self):
+        motors = self.make(lose=2)
+        motors.float()
+        self.assertEqual(len(motors.bp.sent), 3)
+        self.assertTrue(all(motors.bp.power[p] == FakeBrickPi3.MOTOR_FLOAT for p in motors.ports.values()))
+
+    def test_warning_when_never_floating(self):
+        motors = self.make(lose=99)
+        with self.assertLogs("motors", "WARNING"):
+            motors.float()
+        self.assertEqual(len(motors.bp.sent), config.MOTOR_FLOAT_TRIES)
 
 
 def drive(steering: Steering, left: list, right: list, step_cm: float = 2.0) -> list[float]:

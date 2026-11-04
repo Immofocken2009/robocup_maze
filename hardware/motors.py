@@ -1,10 +1,15 @@
-"""Antrieb: zwei Ketten mit großen LEGO-Motoren am BrickPi3 (A = links, D = rechts).
+"""Antrieb: zwei Ketten mit großen LEGO-Motoren am BrickPi3 (B = links, C = rechts).
 
 Alle Werte sind so umgerechnet, dass positiv = vorwärts heißt (config.MOTOR_DIRECTION).
 """
+import logging
+import time
+
 import brickpi3
 
 import config
+
+log = logging.getLogger("motors")
 
 SIDES = ("left", "right")
 
@@ -44,9 +49,19 @@ class Motors:
             self.bp.set_motor_power(port, 0)
 
     def float(self):
-        """Motoren stromlos, Ketten frei drehbar."""
-        for port in self.ports.values():
-            self.bp.set_motor_power(port, self.bp.MOTOR_FLOAT)
+        """Motoren stromlos, Ketten frei drehbar. Beide Ports in einer Nachricht und danach nachlesen, bis beide
+        stromlos melden (gemessen 2026-11-04: von zwei Nachrichten direkt hintereinander ging die zweite in ca. 5 %
+        verloren, dann lief eine Kette mit dem letzten Tempo weiter)."""
+        both = sum(self.ports.values())
+        for _ in range(config.MOTOR_FLOAT_TRIES):
+            self.bp.set_motor_power(both, self.bp.MOTOR_FLOAT)
+            time.sleep(config.MOTOR_FLOAT_CHECK_S)
+            try:
+                if all(self.bp.get_motor_status(port)[1] == self.bp.MOTOR_FLOAT for port in self.ports.values()):
+                    return
+            except OSError:
+                pass            # Lesefehler: nochmal schicken
+        log.warning("Motoren melden nach %d Versuchen nicht stromlos", config.MOTOR_FLOAT_TRIES)
 
     def battery(self) -> float:
         return self.bp.get_voltage_battery()

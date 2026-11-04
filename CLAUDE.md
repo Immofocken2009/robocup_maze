@@ -195,6 +195,11 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - **Nirgends bremsen, außer der Projektinhaber sagt es** (entschieden 2026-11-04): statt `motors.stop()` (aktive
   Bremse) immer `motors.float()` (stromlos, rollt aus), auch bei K2/K3, Zeitende, schwarz/rot erkannt, blockiert,
   Warten und in `tools/test_motors.py`. `Motors.stop()` bleibt nur für den Fall, dass er es anordnet.
+- **Abschalten sicher machen** (entschieden 2026-11-04): `Motors.float()` schickt „stromlos“ für beide Ports in
+  **einer** Nachricht an den BrickPi3, liest danach den Status nach (`MOTOR_FLOAT_CHECK_S`) und wiederholt den
+  Befehl, bis beide stromlos melden (höchstens `MOTOR_FLOAT_TRIES`, sonst Warnung im Log). Grund: einzelne
+  Schreibbefehle an den BrickPi3 gehen verloren (siehe Bekannte Stolpersteine); einmal lief dadurch nach einer
+  Drehung die linke Kette mit vollem Tempo weiter.
 - **Geradeaus:** PD-Regler (geändert 2026-11-03, Vorgabe Projektinhaber):
   - **Grundregel: links und rechts gleich** (Abweichung = (links − rechts) / 2). Keine feste
     Wandgrenze (z.B. 20 cm) beim Lenken. Die 20-cm-Grenze gilt nur für die Karte (Messung in Kachelmitte).
@@ -434,6 +439,13 @@ Zum Gyro (vor dem Umsetzen klären):
 
 
 ## Bekannte Stolpersteine
+
+- **BrickPi3 verliert einzelne Schreibbefehle** (gemessen 2026-11-04, ohne zweites Programm): von zwei Nachrichten
+  direkt hintereinander ging die zweite in ca. 5 % verloren; auch eine einzelne Nachricht direkt nach anderen
+  manchmal (14 von 500). Lesebefehle prüft die Bibliothek (Antwort 0xA5), Schreibbefehle nicht. Drehzahlen beim
+  Fahren schickt der Code alle 10 ms neu (harmlos), das Abschalten wird nachgeprüft. Der gemeldete Status kann
+  bis ca. 50 ms hinterherhinken. Greifen zwei Programme gleichzeitig zu (Dienst + Testprogramm), gehen mehr
+  verloren: vor Motortests immer `sudo systemctl stop robocup-robot`.
 
 - I2C ist eingeschaltet (`dtparam=i2c_arm=on`), Bus 1 = GPIO 2 (SDA) / GPIO 3 (SCL).
 - Gyro-Reihe an J2 verdreht gesteckt → SDA hängt auf LOW, der ganze I2C-Bus (auch Farbsensor) ist blockiert.
