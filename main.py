@@ -55,7 +55,7 @@ def competition(robot: RealRobot, explorer: Explorer, wait_lop, on_status=lambda
                 explorer.run()
             break
         except LackOfProgress:
-            robot.motors.stop()
+            robot.motors.float()
             explorer.mode = "Lack of Progress"
             robot.set_action("wartet auf K3", "Roboter auf den letzten Checkpoint setzen")
             on_status("lop")
@@ -76,7 +76,7 @@ def competition(robot: RealRobot, explorer: Explorer, wait_lop, on_status=lambda
             log.exception("Fehler im Lauf")
             explorer.mode = "Fehler, siehe Aufzeichnung oder journalctl -u robocup-robot"
             break
-    robot.motors.stop()
+    robot.motors.float()
     robot.clear_interrupt()
     return stopped
 

@@ -33,7 +33,7 @@ def direction(motors: Motors):
         input(f"Enter = {name} Kette 1 s drehen lassen ")
         motors.set_dps(200 if side == "left" else 0, 200 if side == "right" else 0)
         time.sleep(1)
-        motors.stop()
+        motors.float()
         forward = input(f"Ist die {name} Kette vorwärts gelaufen? (j/n) ").strip().lower().startswith("j")
         result[side] = config.MOTOR_DIRECTION[side] * (1 if forward else -1)
     print(f"\nIn config.py eintragen:\nMOTOR_DIRECTION = {result}")

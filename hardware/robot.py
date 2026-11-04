@@ -274,7 +274,6 @@ class RealRobot(RobotInterface):
 
     def reset(self):
         """Zustand wie nach dem Einschalten (Motoren aus, Uhr steht)."""
-        self.motors.stop()
         self.motors.float()
         self.started_at = None
         self._interrupt = None
@@ -360,7 +359,7 @@ class RealRobot(RobotInterface):
                 bad = bad + 1 if tile in avoid else 0
                 self.trace("farbe", boden=tile, meiden=tile in avoid, hintereinander=bad)
                 if bad >= config.COLOR_STOP_COUNT:
-                    self.motors.stop()
+                    self.motors.float()
                     self.floor = tile
                     self.set_action(f"{FLOOR_NAMES[tile]} erkannt", "fährt zurück")
                     self.drive_cm(-self._travelled(l0, r0))
@@ -386,7 +385,7 @@ class RealRobot(RobotInterface):
 
             # Ketten blockiert: nicht ewig weiterdrücken, zurück und als Wand melden
             if stall.stalled(self.encoders):
-                self.motors.stop()
+                self.motors.float()
                 self.trace("blockiert", gefahren=travelled, encoder=self.encoders)
                 self.set_action("Ketten blockiert", "fährt zurück")
                 self.drive_cm(-travelled)
@@ -410,7 +409,7 @@ class RealRobot(RobotInterface):
             self.on_change()
             self.clock.sleep(LOOP_S)
 
-        self.motors.stop()
+        self.motors.float()
         self.corridor_cm = steering.corridor
         l, r = self.encoders
         heading.track(self._travelled(l0, r0), (l - l0, r - r0))
@@ -434,7 +433,7 @@ class RealRobot(RobotInterface):
 
     def wait(self, seconds: float):
         self._begin("wartet")
-        self.motors.stop()
+        self.motors.float()
         end = self.clock.monotonic() + seconds
         while (left := end - self.clock.monotonic()) > 0:
             self._check()
@@ -445,7 +444,7 @@ class RealRobot(RobotInterface):
     def signal_exit(self):
         # Kein Blinken (Entscheidung Projektinhaber): am Start einfach stehen bleiben.
         self._begin("steht am Start")
-        self.motors.stop()
+        self.motors.float()
 
     # --- Bausteine --------------------------------------------------------------
 
@@ -464,10 +463,10 @@ class RealRobot(RobotInterface):
         """Taster oder Zeitlimit: anhalten und die Aktion abbrechen."""
         reason = self._read_interrupt()
         if reason:
-            self.motors.stop()
+            self.motors.float()
             raise RunStopped if reason == "stop" else LackOfProgress
         if self.started_at is not None and self.time() >= config.TIME_LIMIT_S:
-            self.motors.stop()
+            self.motors.float()
             raise TimeUp
 
     def _read_interrupt(self) -> str | None:
@@ -516,7 +515,7 @@ class RealRobot(RobotInterface):
                            "turn_deg": round(direction * 90 * done / config.MOTOR_DEG_PER_90)}
             self.on_change()
             self.clock.sleep(LOOP_S)
-        self.motors.stop()
+        self.motors.float()
 
     def drive_cm(self, cm: float):
         """Gerade nach Encoder fahren (negativ = rückwärts), beide Ketten im Gleichlauf."""
@@ -536,4 +535,4 @@ class RealRobot(RobotInterface):
             self.motors.set_dps(direction * speed - corr, direction * speed + corr)
             self.on_change()
             self.clock.sleep(LOOP_S)
-        self.motors.stop()
+        self.motors.float()

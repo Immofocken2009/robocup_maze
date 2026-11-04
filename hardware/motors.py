@@ -39,7 +39,7 @@ class Motors:
             self.bp.set_motor_limits(port, percent, 0)
 
     def stop(self):
-        """Anhalten und bremsen."""
+        """Anhalten und bremsen. Nur auf Anweisung des Projektinhabers benutzen (sonst float: ausrollen)."""
         for port in self.ports.values():
             self.bp.set_motor_power(port, 0)
 

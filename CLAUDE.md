@@ -23,11 +23,11 @@
   **Strecke eingemessen 2026-11-04:** `MOTOR_DEG_PER_CM` = **18,29** (Fahrt nach Encoder mit halbem Tempo:
   1802 Encodergrad = 98,5 cm; vorher geschätzt 30). Dabei ca. **10° nach rechts gedriftet**, obwohl beide
   Encoder gleich liefen (1802 / 1801), siehe Offene Fragen.
-  **Drehen eingemessen 2026-11-04:** `MOTOR_DEG_PER_90` = **297** (4 × rechts mit 274 = 1090 Encodergrad,
-  zusammen ca. 330° geschätzt). Passt nicht zur Schätzung nach der ersten Drehung („10–15° zu viel“), darum mit
-  dem neuen Wert nachprüfen (4 × 90° müssen wieder genau in Startrichtung enden).
-  Beide Werte wurden noch **mit Langsamwerden vor dem Ziel** eingemessen; ohne dreht/fährt er etwas weiter
-  (Simulation: +0,4° je Drehung, +0,25 cm je Kachel). Nachmessen.
+  **Drehen eingemessen 2026-11-04:** `MOTOR_DEG_PER_90` = **357** (360° am Stück mit normalem Tempo und Bremse:
+  1250 Encodergrad, es fehlte ca. 1/8 Umdrehung, also ca. 315°). Vorher mit 4 × 90° und Langsamwerden: 297
+  (1090 Encodergrad = ca. 330°). Die Ketten rutschen beim Drehen also je nach Tempo sehr unterschiedlich;
+  nachmessen mit dem jetzigen Stand (ohne Langsamwerden, ohne Bremse, 4 × 90° wie im Lauf).
+  Die Strecke (`MOTOR_DEG_PER_CM`) wurde noch mit Langsamwerden vor dem Ziel eingemessen. Nachmessen.
 - **Maße (gemessen 2026-11-04):** außen über alles mit überstehenden Teilen **16,5 cm lang, 19,5 cm breit**.
   Ketten mittig unter dem Roboter (Drehmitte = Mitte), **Kettenmitten 15 cm auseinander**,
   **Ketten von Achse zu Achse 10,5 cm lang** (beide gleich). Wird im Code nicht gebraucht: wie weit die Ketten
@@ -188,8 +188,11 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   (Fahr-/Drehtempo, `STALL_DEG`, `STEER_KP/KD/MAX/SLEW`, Schätzung `MOTOR_DEG_PER_90`;
   `STEER_ENC_K` bleibt). So fährt der Roboter körperlich wie in der Simulation eingestellt (ca. 13 cm/s).
 - **Kein Langsamwerden vor dem Ziel** (entschieden 2026-11-04, Vorgabe Projektinhaber): Fahren und Drehen immer mit
-  normalem Tempo (`DRIVE_SPEED_DPS`, `TURN_SPEED_DPS`) bis zum Ziel, dort bremsen. (Vorher: letzte 5 cm bzw. letzte
-  Encodergrad einer Drehung langsam.) Nach jeder Aktion hält er weiterhin an.
+  normalem Tempo (`DRIVE_SPEED_DPS`, `TURN_SPEED_DPS`) bis zum Ziel, dann Motoren stromlos (ausrollen).
+  (Vorher: letzte 5 cm bzw. letzte Encodergrad einer Drehung langsam.) Nach jeder Aktion hält er weiterhin an.
+- **Nirgends bremsen, außer der Projektinhaber sagt es** (entschieden 2026-11-04): statt `motors.stop()` (aktive
+  Bremse) immer `motors.float()` (stromlos, rollt aus), auch bei K2/K3, Zeitende, schwarz/rot erkannt, blockiert,
+  Warten und in `tools/test_motors.py`. `Motors.stop()` bleibt nur für den Fall, dass er es anordnet.
 - **Geradeaus:** PD-Regler (geändert 2026-11-03, Vorgabe Projektinhaber):
   - **Grundregel: links und rechts gleich** (Abweichung = (links − rechts) / 2). Keine feste
     Wandgrenze (z.B. 20 cm) beim Lenken. Die 20-cm-Grenze gilt nur für die Karte (Messung in Kachelmitte).
@@ -408,6 +411,10 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
   (aus 10° Startschräge: geschätzt −0,66°, wirklich −1,10°), der Fehler wächst mit der Lenkbewegung.
   Vermutete Ursache: links/rechts werden abwechselnd gemessen, die Abweichung nutzt eine ältere Seite, die
   herausgerechnete Encoder-Drehung passt dann zeitlich nicht. Untersuchen/beheben?
+  (Bestätigt: ohne Lenkbewegung trifft die Schätzung genau, 2,98° statt 3,0°.)
+- Auslaufen nach jeder Drehung (kein Langsamwerden, keine Bremse): in der Fahrphysik dreht er jedes Mal ca. 2° zu
+  weit, unabhängig vom Winkel. Bei 90° fängt das Einmessen es auf, bei der kleinen Korrektur am Kachelende nicht
+  (1° befohlen → ca. 3°). Ausgleich, z.B. Drehung um das gemessene Auslaufen früher beenden (Vorhalt)?
 
 Zum Gyro (vor dem Umsetzen klären):
 - Simulation: Gyro in `simulation/sim_hardware.py` nachbilden (Rauschen, Nullpunktdrift, Skalierungsfehler)?

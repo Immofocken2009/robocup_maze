@@ -75,18 +75,18 @@ class DrivingTest(unittest.TestCase):
         self.assertAlmostEqual(hw.body.y, 0.5 * TILE, delta=1.5)
 
     def test_forward_straightens_in_corridor(self):
-        """Schräg losgefahren: am Kachelende dreht er sich nach den Seitenwänden gerade.
-        Schwelle niedriger als im Lauf: die Lenkung lässt aus 10° nur ca. 1° übrig, die Schätzung liegt darunter."""
+        """Schräg durch den Gang (Lenkung aus, damit der Schrägstand bis zum Kachelende bleibt): die Schätzung
+        aus den Seitenwänden trifft ihn, am Kachelende dreht er sich um genau diesen Winkel zurück."""
         hw = SimHardware(corridor(4))
-        hw.body.heading = 10.0
+        hw.body.heading = 4.0
         robot = SimDrivingRobot(hw)
-        turns = []
-        robot.trace = lambda what, **v: turns.append(v["dreht"]) if what == "schräglage" else None
-        with mock.patch.object(config, "HEADING_FIX_MIN_DEG", 0.3):
+        seen = []
+        robot.trace = lambda what, **v: seen.append(v) if what == "schräglage" else None
+        with mock.patch.object(config, "STEER_KP", 0.0), mock.patch.object(config, "STEER_KD", 0.0):
             result = robot.forward({TileType.BLACK})
         self.assertIs(result.status, MoveStatus.OK)
-        self.assertNotEqual(turns, [0.0])
-        self.assertAlmostEqual(hw.body.heading, 0.0, delta=1.0)
+        self.assertAlmostEqual(seen[0]["geschätzt"], 4.0, delta=0.2)
+        self.assertAlmostEqual(seen[0]["dreht"], -seen[0]["geschätzt"])
 
     def test_blocked_tracks_do_not_hang(self):
         """Schräg gegen die Seitenwand: die Fahrt endet als 'blockiert' statt endlos zu drücken."""
