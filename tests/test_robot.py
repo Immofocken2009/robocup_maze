@@ -1,17 +1,21 @@
-"""Tests für hardware/robot.py (und das Abschalten in hardware/motors.py, die Ultraschall-Kalibrierung)
+"""Tests für hardware/robot.py (und das Abschalten in hardware/motors.py, die Kalibrierprogramme, call.py)
 mit nachgebauter Hardware (nichts bewegt sich).
 
 Der nachgebaute Roboter fährt auf einer Geraden: x = Weg der Robotermitte in cm ab der Mitte
 der Startkachel. Die Zeit läuft im Nachbau SPEEDUP-mal so schnell, damit die Tests kurz bleiben.
 """
+import io
 import json
 import math
+import sys
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+import call
 import config
 import hardware.motors
 from hardware.color_sensor import classify
@@ -20,6 +24,7 @@ from hardware.robot import HeadingEstimate, LackOfProgress, RealRobot, RunStoppe
 from hardware.ultrasonic import load_calibration
 from navigation.maze_map import TileType
 from navigation.robot_interface import MoveStatus
+from tools.calibrate_color import saved_colors
 from tools.calibrate_ultrasonic import fit_line
 
 SPEEDUP = 4.0
@@ -314,6 +319,46 @@ class UltrasonicCalibrationTest(unittest.TestCase):
 
     def test_without_file_no_warning(self):
         self.assertEqual(load_calibration(None), (None, None))
+
+
+class ColorCalibrationTest(unittest.TestCase):
+    def test_saved_colors_only_with_same_settings(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "colors.json"
+            self.assertIsNone(saved_colors(path))
+            settings = {"integration_ms": config.COLOR_INTEGRATION_MS, "gain": config.COLOR_GAIN}
+            path.write_text(json.dumps({"settings": settings, "colors": {"white": [1, 2, 3, 4]}}))
+            self.assertEqual(saved_colors(path), {"white": (1, 2, 3, 4)})
+            path.write_text(json.dumps({"settings": {**settings, "gain": -1}, "colors": {"white": [1, 2, 3, 4]}}))
+            self.assertIsNone(saved_colors(path))
+
+
+class CallTest(unittest.TestCase):
+    """call.py ruft die richtigen Kalibrierungen auf (die Kalibrierungen selbst sind nachgebaut)."""
+
+    def call(self, *argv, service=False):
+        with mock.patch.object(sys, "argv", ["call.py", *argv]), \
+                mock.patch.object(call, "service_running", return_value=service), \
+                mock.patch.object(call.calibrate_ultrasonic, "run") as us, \
+                mock.patch.object(call.calibrate_color, "run") as rgb, redirect_stdout(io.StringIO()):
+            call.main()
+        return us, rgb
+
+    def test_ultrasonic_sides(self):
+        us, rgb = self.call("--ultrasonicR", "--ultrasonicL")
+        us.assert_called_once_with(["left", "right"])
+        rgb.assert_not_called()
+
+    def test_rgb_all_or_some(self):
+        _, rgb = self.call("--rgb")
+        rgb.assert_called_once_with(None)
+        _, rgb = self.call("--rgb", "Silber", "weiss")
+        rgb.assert_called_once_with(["silver", "white"])
+
+    def test_refuses_while_service_runs(self):
+        us, rgb = self.call("--rgb", "--ultrasonicV", service=True)
+        us.assert_not_called()
+        rgb.assert_not_called()
 
 
 def drive(steering: Steering, left: list, right: list, step_cm: float = 2.0) -> list[float]:

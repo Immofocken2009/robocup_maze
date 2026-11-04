@@ -82,7 +82,8 @@ robocup/
 ├── CLAUDE.md
 ├── config.py              # alle Einstellungen: Pins, Maße, Schwellwerte, Zeiten
 ├── main.py                # Roboterprogramm: wartet auf K1, fährt den Wettkampflauf
-├── call.py                # Programme aufrufen: --ultrasonicL/R/V = Ultraschall links/rechts/vorne kalibrieren
+├── call.py                # Programme aufrufen: --ultrasonicL/R/V = Ultraschall links/rechts/vorne kalibrieren,
+│                          #   --rgb [farbe ...] = Farbsensor einmessen
 ├── robocup-web.service    # systemd: Webseite beim Booten starten
 ├── robocup-robot.service  # systemd: main.py beim Booten starten
 ├── hardware/              # spricht direkt mit der Hardware
@@ -280,6 +281,8 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Messpunkten). Einzelne Sensoren neu kalibrierbar, die anderen bleiben. `hardware/ultrasonic.py` korrigiert jede
   Messung. Ohne Kalibrierung (oder für einen fehlenden Sensor): Rohwerte und Warnung auf der Webseite.
   Die Kalibrierung steht im Kopf jeder Aufzeichnung. Die Simulation misst ohne Fehler und braucht keine.
+- **Farbsensor einmessen** (entschieden 2026-11-04): `call.py --rgb` misst alle fünf Bodenfarben (Weiß, Schwarz, Blau,
+  Silber, Rot; Blau/Silber/Rot überspringbar), einzelne Farben können neu eingemessen werden, danach Live-Erkennung.
 - **Farbsensor:** Kalibrierwerkzeug in `tools/` misst Weiß/Schwarz/Blau/Silber/Rot auf dem echten
   Boden und speichert nach `data/`. Beim Fahren wird die nächstliegende kalibrierte Farbe gewählt.
 - **Exit-Signal:** wird ignoriert (keine Blinkhardware), der Roboter bleibt am Start einfach stehen.
@@ -407,7 +410,10 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 - Ultraschall kalibrieren: `python3 -m tools.calibrate_ultrasonic` (nur einer: `... links`) → `data/ultrasonic.json`,
   oder einzeln über `python3 call.py --ultrasonicL` / `--ultrasonicR` / `--ultrasonicV` (links/rechts/vorne, auch mehrere).
   **Ohne sudo starten**, sonst gehören `data/` und die Datei root und spätere Läufe können nicht speichern.
-- Farbsensor kalibrieren: `python3 -m tools.calibrate_color` (nur Live-Anzeige: `--test`) → `data/colors.json`
+- Farbsensor kalibrieren: `python3 -m tools.calibrate_color` (nur Live-Anzeige: `--test`) → `data/colors.json`,
+  oder `python3 call.py --rgb` (alle fünf Farben), `python3 call.py --rgb silber rot` (nur diese neu, die anderen bleiben;
+  geht nur, wenn die gespeicherte Kalibrierung mit den jetzigen `COLOR_*`-Einstellungen gemessen wurde).
+  `call.py` bricht ab, solange `robocup-robot` läuft (benutzt dieselben Sensoren).
 - Motoren einmessen (Roboter fährt!): `python3 -m tools.test_motors richtung|strecke|drehen`
   → Werte für `MOTOR_DIRECTION`, `MOTOR_DEG_PER_CM`, `MOTOR_DEG_PER_90` in `config.py`
 
