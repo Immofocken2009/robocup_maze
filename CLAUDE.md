@@ -20,6 +20,9 @@
   (dort sitzt der Motor). Ports (geändert 2026-11-04): **B = links, C = rechts**.
   Beide am 2026-11-04 geprüft: laufen bei positiver Drehzahl rückwärts, daher `MOTOR_DIRECTION` = −1 für beide
   (danach je Kette über `hardware/motors.py` vorwärts bestätigt).
+  **Strecke eingemessen 2026-11-04:** `MOTOR_DEG_PER_CM` = **18,29** (Fahrt nach Encoder mit halbem Tempo:
+  1802 Encodergrad = 98,5 cm; vorher geschätzt 30). Dabei ca. **10° nach rechts gedriftet**, obwohl beide
+  Encoder gleich liefen (1802 / 1801), siehe Offene Fragen.
 - **Maße (gemessen 2026-11-04):** außen über alles mit überstehenden Teilen **16,5 cm lang, 19,5 cm breit**.
   Ketten mittig unter dem Roboter (Drehmitte = Mitte), **Kettenmitten 15 cm auseinander**,
   **Ketten von Achse zu Achse 10,5 cm lang** (beide gleich). Wird im Code nicht gebraucht: wie weit die Ketten
@@ -175,6 +178,10 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 ### Echter Roboter (freigegeben 2026-11-03)
 
 - **Bibliotheken:** `brickpi3` (Motoren), `smbus2` (Farbsensor), `lgpio` (Ultraschall), `gpiozero` (Taster).
+- **Drehzahlen beim Einmessen umrechnen** (entschieden 2026-11-04): Ändert sich `MOTOR_DEG_PER_CM`, werden alle
+  Werte in `config.py`, die in Drehzahl (dps) oder Encodergrad angegeben sind, mit demselben Faktor umgerechnet
+  (Fahr-/Drehtempo, `TURN_SLOW_DEG`, `STALL_DEG`, `STEER_KP/KD/MAX/SLEW`, Schätzung `MOTOR_DEG_PER_90`;
+  `STEER_ENC_K` bleibt). So fährt der Roboter körperlich wie in der Simulation eingestellt (ca. 13 cm/s).
 - **Geradeaus:** PD-Regler (geändert 2026-11-03, Vorgabe Projektinhaber):
   - **Grundregel: links und rechts gleich** (Abweichung = (links − rechts) / 2). Keine feste
     Wandgrenze (z.B. 20 cm) beim Lenken. Die 20-cm-Grenze gilt nur für die Karte (Messung in Kachelmitte).
@@ -386,6 +393,9 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
   alles als Text: `--text`
 
 ## Offene Fragen an den Projektinhaber
+
+- Drift beim Geradeausfahren: ca. 10° nach rechts auf 98,5 cm, obwohl beide Encoder gleich liefen. Mechanik prüfen
+  (Kettenspannung, etwas schleift)? Wiederholbar? Ausgleich (z.B. Faktor pro Kette) oder Seitenwände/Gyro?
 
 Zum Gyro (vor dem Umsetzen klären):
 - Simulation: Gyro in `simulation/sim_hardware.py` nachbilden (Rauschen, Nullpunktdrift, Skalierungsfehler)?

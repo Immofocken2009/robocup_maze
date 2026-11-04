@@ -59,29 +59,31 @@ COLOR_STOP_COUNT = 2            # so viele Messungen hintereinander schwarz/rot,
 # --- Motoren (BrickPi3) --------------------------------------------------------
 MOTOR_PORTS = {"left": "B", "right": "C"}   # geprüft 2026-11-04
 MOTOR_DIRECTION = {"left": -1, "right": -1}  # -1, wenn die Kette bei positiver Drehzahl rückwärts läuft. Geprüft 2026-11-04
-MOTOR_DEG_PER_CM = 30.0     # Encodergrad pro cm Fahrstrecke. MESSEN! (tools.test_motors)
-MOTOR_DEG_PER_90 = 450.0    # Encodergrad je Kette für eine 90°-Drehung auf der Stelle. MESSEN!
+MOTOR_DEG_PER_CM = 18.29    # Encodergrad pro cm Fahrstrecke. Eingemessen 2026-11-04 (1802 Grad = 98,5 cm)
+MOTOR_DEG_PER_90 = 274.0    # Encodergrad je Kette für eine 90°-Drehung auf der Stelle. MESSEN! (Schätzung umgerechnet)
 
-DRIVE_SPEED_DPS = 400       # Geradeaus (Grad pro Sekunde am Motor)
-DRIVE_SLOW_DPS = 150        # kurz vor dem Ziel
+# Drehzahlen, Encodergrad und Lenkwerte am 2026-11-04 auf MOTOR_DEG_PER_CM = 18,29 umgerechnet (vorher 30 geschätzt,
+# alles × 0,61): der Roboter fährt damit körperlich genauso wie in der Simulation eingestellt (ca. 13 cm/s).
+DRIVE_SPEED_DPS = 244       # Geradeaus (Grad pro Sekunde am Motor)
+DRIVE_SLOW_DPS = 91         # kurz vor dem Ziel
 DRIVE_SLOW_CM = 5.0         # so viele cm vor dem Ziel langsam fahren
-TURN_SPEED_DPS = 300
-TURN_SLOW_DPS = 100
-TURN_SLOW_DEG = 60.0        # so viele Encodergrad vor dem Ziel langsam drehen
+TURN_SPEED_DPS = 183
+TURN_SLOW_DPS = 61
+TURN_SLOW_DEG = 37.0        # so viele Encodergrad vor dem Ziel langsam drehen
 
 FRONT_TRUST_CM = 100.0      # Wand vorne weiter weg als das: nur nach Encoder fahren
 STALL_S = 1.0               # Ketten drehen sich trotz Fahrbefehl so lange nicht: blockiert
-STALL_DEG = 10.0            # weniger Encoder-Bewegung (beide Ketten zusammen) gilt als Stillstand
+STALL_DEG = 6.0             # weniger Encoder-Bewegung (beide Ketten zusammen) gilt als Stillstand
 FORWARD_TOLERANCE_CM = 8.0  # der Abstand vorne darf die Kachelstrecke um höchstens so viel ändern
 
 # PD-Regler beim Geradeausfahren. In der Fahrphysik-Simulation mit Rauschen/Schlupf vorab eingestellt,
 # auf dem echten Feld nachstellen (Simulation kennt die Maße, aber nicht das echte Fahrverhalten).
-STEER_KP = 10.0             # Lenkkorrektur (dps) pro cm Abweichung von der Sollposition
-STEER_KD = 300.0            # Lenkkorrektur (dps) pro cm Abweichung je cm Fahrt (Schrägstand)
+STEER_KP = 6.1              # Lenkkorrektur (dps) pro cm Abweichung von der Sollposition
+STEER_KD = 183.0            # Lenkkorrektur (dps) pro cm Abweichung je cm Fahrt (Schrägstand)
 STEER_D_WINDOW_CM = 4.0     # Schrägstand über so viele cm Fahrt bestimmen
-STEER_ENC_K = 2.0           # ohne Seitenwand: Lenkkorrektur (dps) pro Encodergrad Unterschied
-STEER_MAX_DPS = 120.0
-STEER_SLEW_DPS_PER_CM = 40.0    # Lenkkorrektur ändert sich pro gefahrenem cm höchstens um so viel
+STEER_ENC_K = 2.0           # ohne Seitenwand: Lenkkorrektur (dps) pro Encodergrad Unterschied (bleibt beim Umrechnen)
+STEER_MAX_DPS = 73.0
+STEER_SLEW_DPS_PER_CM = 24.0    # Lenkkorrektur ändert sich pro gefahrenem cm höchstens um so viel
 STEER_WIDTH_JUMP_CM = 1.0       # Breiten-Wächter: links + rechts weicht um mehr von B ab -> Seite ignorieren
                                 # (Fehlalarm ist harmlos: dann kurz nur an einer Wand)
 STEER_STEADY_CM = 1.5           # zurückkehrende Wand: 2 Messungen hintereinander mit höchstens so viel Unterschied
