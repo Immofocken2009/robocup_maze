@@ -1,0 +1,20 @@
+// WLAN-Verwaltung über die Webseite (Reiter „Netzwerk“) erlauben.
+// Die Webseite läuft als Dienst (robocup-web.service, User=immo) ohne angemeldete Sitzung. Die Systemregel
+// von NetworkManager erlaubt das Anlegen von Verbindungen aber nur einer lokal angemeldeten Sitzung.
+// Diese Regel erlaubt dem Benutzer immo genau drei Dinge, sonst nichts:
+//   settings.modify.system  Verbindungen anlegen und löschen
+//   network-control         Verbindungen starten und trennen
+//   wifi.scan               nach WLAN-Netzen suchen
+//
+// Einrichten (einmalig, im Projektordner):
+//   sudo install -m 644 robocup-network.rules /etc/polkit-1/rules.d/50-robocup-network.rules
+// Prüfen (muss „yes“ statt „auth“ zeigen):  nmcli general permissions | grep -i "modify.system\|network-control\|wifi.scan"
+// Rückgängig:  sudo rm /etc/polkit-1/rules.d/50-robocup-network.rules
+polkit.addRule(function(action, subject) {
+    if (subject.user == "immo" &&
+        (action.id == "org.freedesktop.NetworkManager.settings.modify.system" ||
+         action.id == "org.freedesktop.NetworkManager.network-control" ||
+         action.id == "org.freedesktop.NetworkManager.wifi.scan")) {
+        return polkit.Result.YES;
+    }
+});

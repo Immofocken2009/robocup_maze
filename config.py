@@ -136,6 +136,13 @@ GENERATOR_MAX_SIZE = 16
 WEB_HOST = "0.0.0.0"        # 0.0.0.0 = auch von anderen Geräten im Netz erreichbar
 WEB_PORT = 8000
 
+# --- Netzwerk (Webseite, Reiter „Netzwerk“) --------------------------------------
+NET_WIFI_PREFIX = "robocup-"    # WLAN-Verbindungen, die die Seite anlegt, heißen so; nur diese löscht sie wieder
+NET_WIFI_METRIC = 600           # Routenpriorität dieser Verbindungen; LAN hat 100 und gewinnt immer
+NET_QUERY_S = 15                # nmcli-Abfragen: so lange höchstens warten
+NET_SCAN_S = 25                 # Suche nach Netzen
+NET_CONNECT_S = 30              # Verbinden (nmcli -w)
+
 # --- Lüfter (Fan-Anschluss des Pi 5), eigene Regelung in hardware/fan.py -------------
 FAN_STEPS = [(45.0, 75), (52.0, 125), (60.0, 175), (68.0, 250)]   # ab °C -> Leistung (0–255)
 FAN_HYST_C = 5.0            # erst so viel unter der Schwelle eine Stufe zurück
