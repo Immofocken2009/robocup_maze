@@ -83,7 +83,7 @@ robocup/
 ├── config.py              # alle Einstellungen: Pins, Maße, Schwellwerte, Zeiten
 ├── main.py                # Roboterprogramm: wartet auf K1, fährt den Wettkampflauf
 ├── call.py                # Programme aufrufen: --ultrasonicL/R/V = Ultraschall links/rechts/vorne kalibrieren,
-│                          #   --rgb [farbe ...] = Farbsensor einmessen
+│                          #   --rgb [farbe ...] = Farbsensor einmessen; später auch Gyro (GEPLANT)
 ├── robocup-web.service    # systemd: Webseite beim Booten starten
 ├── robocup-robot.service  # systemd: main.py beim Booten starten
 ├── hardware/              # spricht direkt mit der Hardware
@@ -250,6 +250,8 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   - **Dateien:** `hardware/gyro.py` (Treiber) und `tools/test_gyro.py` (Live-Anzeige; findet Achse und Vorzeichen,
     wenn man den Roboter von Hand dreht; misst den Skalierungsfaktor). Ergebnisse als Werte in `config.py`
     (Einbaulage = Achse + Vorzeichen, Skalierungsfaktor).
+    **Auch über `call.py` aufrufbar** (Vorgabe Projektinhaber 2026-11-04), wie Ultraschall und Farbsensor;
+    Name des Schalters noch festlegen (z.B. `--gyro`).
   - **Bibliothek:** `smbus2` direkt (Register selbst lesen, wie beim Farbsensor), keine pip-Bibliothek.
   - **Auslesen über den FIFO des Sensors:** Der MPU-6050 misst selbst im festen Takt (vorgesehen 200 Hz, nur die
     Drehrate der Hochachse, Messbereich ±500 °/s = 65,5 pro °/s) und puffert (1024 Byte, bei 2 Byte je Messung
@@ -451,7 +453,7 @@ Zum Gyro (vor dem Umsetzen klären):
 ## Noch umzusetzen
 
 - [ ] **Gyro MPU-6050** anschließen und umsetzen wie unter „Gyro MPU-6050 – NOCH UMZUSETZEN“ beschrieben:
-  `hardware/gyro.py`, `tools/test_gyro.py` (Achse, Vorzeichen, Skalierung einmessen), Nutzung im Fahrcode
+  `hardware/gyro.py`, `tools/test_gyro.py` (Achse, Vorzeichen, Skalierung einmessen; auch über `call.py`), Nutzung im Fahrcode
   (Drehen, Blickrichtung, geradeaus ohne Wände), Nullpunkt nachführen, Rückfall ohne Gyro, Aufzeichnung/Nachrechnen,
   Tests. Vorher die offenen Fragen oben klären.
 
