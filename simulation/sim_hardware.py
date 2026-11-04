@@ -340,6 +340,8 @@ class SimUltrasonic:
         self.rng = random.Random()
         self.last: dict[str, float | None] = {side: None for side in SIDES}
         self._last_ping = -math.inf
+        self.calibration = None         # die Simulation misst ohne Fehler, keine Kalibrierung
+        self.warning = None
 
     def ready(self) -> bool:
         return self.clock.monotonic() - self._last_ping >= config.US_CYCLE_S

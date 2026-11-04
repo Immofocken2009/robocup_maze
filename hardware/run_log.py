@@ -198,7 +198,8 @@ class Recorder:
         """Aufzeichnung eines Laufs mit allem, was zum Nachrechnen über den Startzustand nötig ist."""
         color = robot.color
         self.start(path, red_mode=red_mode, corridor_cm=robot.corridor_cm, color_calibration=color.calibration,
-                   color_integration_s=color.integration_s, color_warning=color.warning)
+                   color_integration_s=color.integration_s, color_warning=color.warning,
+                   us_calibration=robot.us.calibration, us_warning=robot.us.warning)
 
     def stop(self, **end):
         if self.log is None:

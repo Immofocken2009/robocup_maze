@@ -3,16 +3,21 @@
 Die Sensoren werden nacheinander ausgelöst (stören sich so nicht gegenseitig), zwischen zwei
 Messungen liegen mindestens config.US_CYCLE_S. Die Echo-Flanken erfasst der Kernel mit
 Zeitstempel (lgpio). Kommt kein Echo, liefert die Messung nach US_ECHO_TIMEOUT_S None.
+Ist eine Kalibrierung gespeichert (data/ultrasonic.json, tools/calibrate_ultrasonic.py), wird jede Messung je Sensor
+korrigiert: richtig = Faktor × gemessen + Versatz (Abstand von der Vorderseite des Sensors).
 """
+import json
 import statistics
 import threading
 import time
+from pathlib import Path
 
 import lgpio
 
 import config
 
 SIDES = ("front", "left", "right")
+NAMES = {"front": "vorne", "left": "links", "right": "rechts"}
 
 
 class Echo:
@@ -45,7 +50,9 @@ class Echo:
 
 
 class Ultrasonic:
-    def __init__(self):
+    def __init__(self, calibration_file: Path | None = config.US_CALIBRATION_FILE):
+        """calibration_file=None: ohne Kalibrierung messen (Rohwerte, zum Kalibrieren selbst)."""
+        self.calibration, self.warning = load_calibration(calibration_file)
         self.chip = lgpio.gpiochip_open(config.GPIO_CHIP)
         self.echos: dict[str, Echo] = {}
         for side in SIDES:
@@ -78,6 +85,9 @@ class Ultrasonic:
         if echo.wait(config.US_ECHO_TIMEOUT_S):
             self.last_echo_ns = echo.width_ns
             cm = echo.width_ns / 1e9 * config.SPEED_OF_SOUND_M_S / 2 * 100
+            if self.calibration and side in self.calibration:
+                factor, offset = self.calibration[side]
+                cm = factor * cm + offset
             if cm > config.US_MAX_DISTANCE_CM:
                 cm = None
         self.last[side] = cm
@@ -102,3 +112,22 @@ class Ultrasonic:
         for echo in self.echos.values():
             echo.close()
         lgpio.gpiochip_close(self.chip)
+
+
+def load_calibration(path: Path | None = config.US_CALIBRATION_FILE) -> tuple[dict[str, tuple[float, float]] | None,
+                                                                              str | None]:
+    """Kalibrierung laden: je Sensor (Faktor, Versatz). Ergebnis: (Werte, Warnung). Fehlt ein Sensor, misst er dort
+    ohne Korrektur."""
+    if path is None:
+        return None, None
+    if not path.exists():
+        return None, "Ultraschall nicht kalibriert (python3 -m tools.calibrate_ultrasonic)"
+    try:
+        data = json.loads(path.read_text())
+        values = {side: (float(data[side]["factor"]), float(data[side]["offset"])) for side in SIDES if side in data}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None, f"Ultraschall-Kalibrierung unlesbar ({path.name}), misst ohne Korrektur"
+    missing = [NAMES[side] for side in SIDES if side not in values]
+    if missing:
+        return values, f"Ultraschall nicht kalibriert: {', '.join(missing)} (python3 -m tools.calibrate_ultrasonic)"
+    return values, None

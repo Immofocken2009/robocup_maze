@@ -1,12 +1,15 @@
-"""Tests für hardware/robot.py (und das Abschalten in hardware/motors.py) mit nachgebauter Hardware
-(nichts bewegt sich).
+"""Tests für hardware/robot.py (und das Abschalten in hardware/motors.py, die Ultraschall-Kalibrierung)
+mit nachgebauter Hardware (nichts bewegt sich).
 
 Der nachgebaute Roboter fährt auf einer Geraden: x = Weg der Robotermitte in cm ab der Mitte
 der Startkachel. Die Zeit läuft im Nachbau SPEEDUP-mal so schnell, damit die Tests kurz bleiben.
 """
+import json
 import math
+import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import config
@@ -14,8 +17,10 @@ import hardware.motors
 from hardware.color_sensor import classify
 from hardware.motors import Motors
 from hardware.robot import HeadingEstimate, LackOfProgress, RealRobot, RunStopped, Steering, stop_distance
+from hardware.ultrasonic import load_calibration
 from navigation.maze_map import TileType
 from navigation.robot_interface import MoveStatus
+from tools.calibrate_ultrasonic import fit_line
 
 SPEEDUP = 4.0
 TILE = config.TILE_SIZE_CM
@@ -268,6 +273,47 @@ class MotorsFloatTest(unittest.TestCase):
         with self.assertLogs("motors", "WARNING"):
             motors.float()
         self.assertEqual(len(motors.bp.sent), config.MOTOR_FLOAT_TRIES)
+
+
+class UltrasonicCalibrationTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / "ultrasonic.json"
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_fit_line(self):
+        points = [(m, 0.98 * m - 0.7) for m in (5.6, 10.8, 21.1, 41.5)]
+        factor, offset, error = fit_line(points)
+        self.assertAlmostEqual(factor, 0.98, places=6)
+        self.assertAlmostEqual(offset, -0.7, places=6)
+        self.assertAlmostEqual(error, 0.0, places=6)
+
+    def test_missing_file_warns(self):
+        values, warning = load_calibration(self.path)
+        self.assertIsNone(values)
+        self.assertIn("nicht kalibriert", warning)
+
+    def test_load(self):
+        data = {side: {"factor": 1.01, "offset": -0.5} for side in ("front", "left", "right")}
+        self.path.write_text(json.dumps(data))
+        values, warning = load_calibration(self.path)
+        self.assertEqual(values["left"], (1.01, -0.5))
+        self.assertIsNone(warning)
+
+    def test_partial_and_broken(self):
+        self.path.write_text(json.dumps({"front": {"factor": 1.0, "offset": 0.2}}))
+        values, warning = load_calibration(self.path)
+        self.assertEqual(set(values), {"front"})
+        self.assertIn("links, rechts", warning)
+        self.path.write_text("{kaputt")
+        values, warning = load_calibration(self.path)
+        self.assertIsNone(values)
+        self.assertIn("unlesbar", warning)
+
+    def test_without_file_no_warning(self):
+        self.assertEqual(load_calibration(None), (None, None))
 
 
 def drive(steering: Steering, left: list, right: list, step_cm: float = 2.0) -> list[float]:

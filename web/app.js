@@ -989,6 +989,7 @@ const logView = {
       ["Gefahrenzone", RED_MODE_NAMES[h.red_mode] || h.red_mode || "–"],
       ["Gangbreite am Start", typeof h.corridor_cm === "number" ? `${h.corridor_cm.toFixed(2)} cm` : "–"],
       ["Farbsensor", h.color_warning || "kalibriert"],
+      ["Ultraschall", "us_warning" in h ? (h.us_warning || "kalibriert") : "–"],
       ["Ergebnis", e ? capitalize(e.mode) + (e.stopped ? ", mit K2 abgebrochen" : "") : "kein Ende (z.B. Strom weg)"],
       ["Besucht", e && typeof e.visited === "number" ? `${e.visited} Kacheln` : "–"],
       ["Dauer", fmtSec(s.duration)],

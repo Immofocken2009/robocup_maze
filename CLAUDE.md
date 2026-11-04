@@ -108,10 +108,11 @@ robocup/
 │   ├── index.html
 │   ├── app.js
 │   └── style.css
-├── tools/                 # Testprogramme (Motoren, Sensoren, Farbkalibrierung), replay_run.py (Lauf nachrechnen),
+├── tools/                 # Testprogramme (Motoren, Sensoren, Farbkalibrierung), calibrate_ultrasonic.py
+│                          #   (Ultraschall kalibrieren), replay_run.py (Lauf nachrechnen),
 │                          #   test_gyro.py (GEPLANT, noch umzusetzen)
 ├── tests/                 # automatische Tests der Logik (unittest)
-├── data/                  # Kalibrierwerte
+├── data/                  # Kalibrierwerte (colors.json, ultrasonic.json)
 └── logs/                  # Aufzeichnungen der echten Läufe (ein Lauf = eine .jsonl.gz-Datei, nicht in Git)
 ```
 
@@ -271,6 +272,13 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
     wurde von Hand gerade hingestellt). Die Karte bekommt wie bisher die Richtung vom Checkpoint.
   - **Aufzeichnung:** die FIFO-Abfragen gehören zur Hardware-Grenze; in `hardware/run_log.py` (`Recorder.attach`)
     mitschreiben und in `tools/replay_run.py` nachbilden, damit das Nachrechnen 1:1 bleibt.
+- **Ultraschall-Kalibrierung** (entschieden 2026-11-04): je Sensor **Faktor und Versatz**, richtig = Faktor ×
+  gemessen + Versatz (Abstand von der Vorderseite des Sensors). Einmessen mit `tools/calibrate_ultrasonic.py`:
+  ebenes Brett nacheinander in 5, 10, 20, 40 cm (`US_CALIBRATION_CM`) vor jeden Sensor, je 15 Messungen (Median),
+  Ausgleichsgerade; Hinweis bei mehr als 1 cm Abweichung. Gespeichert in `data/ultrasonic.json` (mit den
+  Messpunkten). Einzelne Sensoren neu kalibrierbar, die anderen bleiben. `hardware/ultrasonic.py` korrigiert jede
+  Messung. Ohne Kalibrierung (oder für einen fehlenden Sensor): Rohwerte und Warnung auf der Webseite.
+  Die Kalibrierung steht im Kopf jeder Aufzeichnung. Die Simulation misst ohne Fehler und braucht keine.
 - **Farbsensor:** Kalibrierwerkzeug in `tools/` misst Weiß/Schwarz/Blau/Silber/Rot auf dem echten
   Boden und speichert nach `data/`. Beim Fahren wird die nächstliegende kalibrierte Farbe gewählt.
 - **Exit-Signal:** wird ignoriert (keine Blinkhardware), der Roboter bleibt am Start einfach stehen.
@@ -395,6 +403,7 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 - Taster testen: `python3 -m tools.test_buttons`
 - Ultraschall testen: `python3 -m tools.test_ultrasonic`
+- Ultraschall kalibrieren: `python3 -m tools.calibrate_ultrasonic` (nur einer: `... links`) → `data/ultrasonic.json`
 - Farbsensor kalibrieren: `python3 -m tools.calibrate_color` (nur Live-Anzeige: `--test`) → `data/colors.json`
 - Motoren einmessen (Roboter fährt!): `python3 -m tools.test_motors richtung|strecke|drehen`
   → Werte für `MOTOR_DIRECTION`, `MOTOR_DEG_PER_CM`, `MOTOR_DEG_PER_90` in `config.py`

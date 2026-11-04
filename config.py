@@ -46,6 +46,9 @@ SPEED_OF_SOUND_M_S = 343.0  # bei ca. 20 °C
 GPIO_CHIP = 0               # gpiochip0 = GPIO-Leiste des Pi 5 (pinctrl-rp1)
 WALL_THRESHOLD_CM = 20.0    # Karte: in der Kachelmitte gemessener Abstand kleiner als das = Wand
 US_READINGS = 3             # so viele Messungen pro Sensor, wenn im Stand Wände gemessen werden (Median)
+US_CALIBRATION_FILE = PROJECT_DIR / "data" / "ultrasonic.json"   # tools/calibrate_ultrasonic.py
+US_CALIBRATION_CM = (5.0, 10.0, 20.0, 40.0)  # Kalibrieren: Brett in diesen Abständen vor die Sensorfläche
+US_CALIBRATION_READINGS = 15                 # Kalibrieren: so viele Messungen je Abstand (Median)
 
 # --- Farbsensor (TCS34725) -----------------------------------------------------
 COLOR_I2C_BUS = 1

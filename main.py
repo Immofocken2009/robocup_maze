@@ -273,6 +273,8 @@ class RobotProgram:
                        battery_low=self.battery < config.BATTERY_LOW_V)
             if r.color.warning:
                 msg["warnings"].append(r.color.warning)
+            if r.us.warning:
+                msg["warnings"].append(r.us.warning)
             if self.battery < config.BATTERY_LOW_V:
                 msg["warnings"].append(f"Akku schwach ({self.battery:.1f} V)")
         if e:
