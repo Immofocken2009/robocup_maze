@@ -19,7 +19,10 @@
 - Antrieb: große LEGO-Motoren am BrickPi3, **2 Ketten**, angetrieben am **vorderen Kettenende**
   (dort sitzt der Motor). Ports: **A = links, D = rechts**.
 - **Maße (gemessen 2026-11-04):** außen über alles mit überstehenden Teilen **16,5 cm lang, 19,5 cm breit**.
-  Ketten mittig unter dem Roboter (Drehmitte = Mitte), **Kettenmitten 15 cm auseinander**.
+  Ketten mittig unter dem Roboter (Drehmitte = Mitte), **Kettenmitten 15 cm auseinander**,
+  **Ketten von Achse zu Achse 10,5 cm lang** (beide gleich). Wird im Code nicht gebraucht: wie weit die Ketten
+  beim Drehen rutschen, steckt im eingemessenen `MOTOR_DEG_PER_90` (ohne Rutschen wären es π/4 · 15 cm ·
+  `MOTOR_DEG_PER_CM`, mit Rutschen mehr).
   „Vorderkante“ = vorderster Punkt = Vorderseite des vorderen Ultraschalls (ragt 1 cm über das Gehäuse).
   Beim Drehen auf der Stelle beschreiben die Ecken einen Kreis mit 12,8 cm Radius; bis zur Wand sind es von der
   Kachelmitte 14 cm, es bleiben also nur ca. 1,2 cm Luft (steht er nicht mittig, streift er).
