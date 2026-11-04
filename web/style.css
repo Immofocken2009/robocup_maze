@@ -356,5 +356,6 @@ table.raw tr.future td { color: var(--muted); opacity: .7; }
   .top h1 { padding: .7rem 0 .2rem; }
   .conn { order: 1; padding-top: .5rem; }
   .views { order: 2; width: 100%; border-bottom: 1px solid var(--rule); }
-  .views button { flex: 1; padding: 0 .4rem; }
+  .views { gap: 0; }
+  .views button { flex: 1; padding: 0 .2rem; font-size: .9rem; }   /* vier Reiter müssen auf 360 px passen */
 }
