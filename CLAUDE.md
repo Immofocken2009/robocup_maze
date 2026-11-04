@@ -23,6 +23,9 @@
   **Strecke eingemessen 2026-11-04:** `MOTOR_DEG_PER_CM` = **18,29** (Fahrt nach Encoder mit halbem Tempo:
   1802 Encodergrad = 98,5 cm; vorher geschätzt 30). Dabei ca. **10° nach rechts gedriftet**, obwohl beide
   Encoder gleich liefen (1802 / 1801), siehe Offene Fragen.
+  **Drehen eingemessen 2026-11-04:** `MOTOR_DEG_PER_90` = **297** (4 × rechts mit 274 = 1090 Encodergrad,
+  zusammen ca. 330° geschätzt). Passt nicht zur Schätzung nach der ersten Drehung („10–15° zu viel“), darum mit
+  dem neuen Wert nachprüfen (4 × 90° müssen wieder genau in Startrichtung enden).
 - **Maße (gemessen 2026-11-04):** außen über alles mit überstehenden Teilen **16,5 cm lang, 19,5 cm breit**.
   Ketten mittig unter dem Roboter (Drehmitte = Mitte), **Kettenmitten 15 cm auseinander**,
   **Ketten von Achse zu Achse 10,5 cm lang** (beide gleich). Wird im Code nicht gebraucht: wie weit die Ketten
