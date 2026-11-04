@@ -23,10 +23,11 @@
   **Strecke eingemessen 2026-11-04:** `MOTOR_DEG_PER_CM` = **18,29** (Fahrt nach Encoder mit halbem Tempo:
   1802 Encodergrad = 98,5 cm; vorher geschätzt 30). Dabei ca. **10° nach rechts gedriftet**, obwohl beide
   Encoder gleich liefen (1802 / 1801), siehe Offene Fragen.
-  **Drehen eingemessen 2026-11-04:** `MOTOR_DEG_PER_90` = **357** (360° am Stück mit normalem Tempo und Bremse:
-  1250 Encodergrad, es fehlte ca. 1/8 Umdrehung, also ca. 315°). Vorher mit 4 × 90° und Langsamwerden: 297
-  (1090 Encodergrad = ca. 330°). Die Ketten rutschen beim Drehen also je nach Tempo sehr unterschiedlich;
-  nachmessen mit dem jetzigen Stand (ohne Langsamwerden, ohne Bremse, 4 × 90° wie im Lauf).
+  **Drehen eingemessen 2026-11-04:** `MOTOR_DEG_PER_90` = **345** (360° am Stück, normales Tempo, ohne Bremse:
+  1430 Encodergrad, ca. 10–15° zu weit, also ca. 372°). Danach nur 2 Encodergrad ausgerollt (ca. 0,5°).
+  Frühere Messungen: 297 (4 × 90° mit Langsamwerden: 1090 Grad = ca. 330°), 357 (360° am Stück mit Bremse:
+  1250 Grad = ca. 315°; dabei lief links 1311, rechts 1188). Die Ketten rutschen beim Drehen also je nach
+  Fahrweise sehr unterschiedlich. Noch mit 4 × 90° wie im Lauf nachprüfen.
   Die Strecke (`MOTOR_DEG_PER_CM`) wurde noch mit Langsamwerden vor dem Ziel eingemessen. Nachmessen.
 - **Maße (gemessen 2026-11-04):** außen über alles mit überstehenden Teilen **16,5 cm lang, 19,5 cm breit**.
   Ketten mittig unter dem Roboter (Drehmitte = Mitte), **Kettenmitten 15 cm auseinander**,
@@ -414,7 +415,8 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
   (Bestätigt: ohne Lenkbewegung trifft die Schätzung genau, 2,98° statt 3,0°.)
 - Auslaufen nach jeder Drehung (kein Langsamwerden, keine Bremse): in der Fahrphysik dreht er jedes Mal ca. 2° zu
   weit, unabhängig vom Winkel. Bei 90° fängt das Einmessen es auf, bei der kleinen Korrektur am Kachelende nicht
-  (1° befohlen → ca. 3°). Ausgleich, z.B. Drehung um das gemessene Auslaufen früher beenden (Vorhalt)?
+  (1° befohlen → ca. 3°). Am echten Roboter gemessen (2026-11-04): nur 2 Encodergrad (ca. 0,5°), die Simulation
+  übertreibt also. Simulation anpassen? Ausgleich (Vorhalt) nötig?
 
 Zum Gyro (vor dem Umsetzen klären):
 - Simulation: Gyro in `simulation/sim_hardware.py` nachbilden (Rauschen, Nullpunktdrift, Skalierungsfehler)?

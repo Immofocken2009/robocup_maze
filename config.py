@@ -60,7 +60,7 @@ COLOR_STOP_COUNT = 2            # so viele Messungen hintereinander schwarz/rot,
 MOTOR_PORTS = {"left": "B", "right": "C"}   # geprüft 2026-11-04
 MOTOR_DIRECTION = {"left": -1, "right": -1}  # -1, wenn die Kette bei positiver Drehzahl rückwärts läuft. Geprüft 2026-11-04
 MOTOR_DEG_PER_CM = 18.29    # Encodergrad pro cm Fahrstrecke. Eingemessen 2026-11-04 (1802 Grad = 98,5 cm)
-MOTOR_DEG_PER_90 = 357.0    # Encodergrad je Kette für eine 90°-Drehung auf der Stelle. Eingemessen 2026-11-04 (360° am Stück: 1250 Grad = ca. 315°)
+MOTOR_DEG_PER_90 = 345.0    # Encodergrad je Kette für eine 90°-Drehung auf der Stelle. Eingemessen 2026-11-04 (360° am Stück ohne Bremse: 1430 Grad = ca. 372°)
 
 # Drehzahlen, Encodergrad und Lenkwerte am 2026-11-04 auf MOTOR_DEG_PER_CM = 18,29 umgerechnet (vorher 30 geschätzt,
 # alles × 0,61): der Roboter fährt damit körperlich genauso wie in der Simulation eingestellt (ca. 13 cm/s).
