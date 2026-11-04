@@ -64,12 +64,9 @@ MOTOR_DEG_PER_90 = 297.0    # Encodergrad je Kette für eine 90°-Drehung auf de
 
 # Drehzahlen, Encodergrad und Lenkwerte am 2026-11-04 auf MOTOR_DEG_PER_CM = 18,29 umgerechnet (vorher 30 geschätzt,
 # alles × 0,61): der Roboter fährt damit körperlich genauso wie in der Simulation eingestellt (ca. 13 cm/s).
+# Fahren und Drehen immer mit diesem Tempo bis zum Ziel, dort bremsen (kein Langsamwerden vorher)
 DRIVE_SPEED_DPS = 244       # Geradeaus (Grad pro Sekunde am Motor)
-DRIVE_SLOW_DPS = 91         # kurz vor dem Ziel
-DRIVE_SLOW_CM = 5.0         # so viele cm vor dem Ziel langsam fahren
 TURN_SPEED_DPS = 183
-TURN_SLOW_DPS = 61
-TURN_SLOW_DEG = 37.0        # so viele Encodergrad vor dem Ziel langsam drehen
 
 FRONT_TRUST_CM = 100.0      # Wand vorne weiter weg als das: nur nach Encoder fahren
 STALL_S = 1.0               # Ketten drehen sich trotz Fahrbefehl so lange nicht: blockiert

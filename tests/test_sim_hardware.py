@@ -1,6 +1,7 @@
 """Tests für die Fahrphysik (simulation/sim_hardware.py) mit dem echten Fahrcode."""
 import random
 import unittest
+from unittest import mock
 
 import config
 from hardware.robot import TimeUp
@@ -74,13 +75,15 @@ class DrivingTest(unittest.TestCase):
         self.assertAlmostEqual(hw.body.y, 0.5 * TILE, delta=1.5)
 
     def test_forward_straightens_in_corridor(self):
-        """Schräg losgefahren: am Kachelende dreht er sich nach den Seitenwänden gerade."""
+        """Schräg losgefahren: am Kachelende dreht er sich nach den Seitenwänden gerade.
+        Schwelle niedriger als im Lauf: die Lenkung lässt aus 10° nur ca. 1° übrig, die Schätzung liegt darunter."""
         hw = SimHardware(corridor(4))
-        hw.body.heading = 10.0      # so schräg, dass nach dem Lenken noch mehr als HEADING_FIX_MIN_DEG übrig ist
+        hw.body.heading = 10.0
         robot = SimDrivingRobot(hw)
         turns = []
         robot.trace = lambda what, **v: turns.append(v["dreht"]) if what == "schräglage" else None
-        result = robot.forward({TileType.BLACK})
+        with mock.patch.object(config, "HEADING_FIX_MIN_DEG", 0.3):
+            result = robot.forward({TileType.BLACK})
         self.assertIs(result.status, MoveStatus.OK)
         self.assertNotEqual(turns, [0.0])
         self.assertAlmostEqual(hw.body.heading, 0.0, delta=1.0)

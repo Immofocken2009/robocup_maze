@@ -26,6 +26,8 @@
   **Drehen eingemessen 2026-11-04:** `MOTOR_DEG_PER_90` = **297** (4 × rechts mit 274 = 1090 Encodergrad,
   zusammen ca. 330° geschätzt). Passt nicht zur Schätzung nach der ersten Drehung („10–15° zu viel“), darum mit
   dem neuen Wert nachprüfen (4 × 90° müssen wieder genau in Startrichtung enden).
+  Beide Werte wurden noch **mit Langsamwerden vor dem Ziel** eingemessen; ohne dreht/fährt er etwas weiter
+  (Simulation: +0,4° je Drehung, +0,25 cm je Kachel). Nachmessen.
 - **Maße (gemessen 2026-11-04):** außen über alles mit überstehenden Teilen **16,5 cm lang, 19,5 cm breit**.
   Ketten mittig unter dem Roboter (Drehmitte = Mitte), **Kettenmitten 15 cm auseinander**,
   **Ketten von Achse zu Achse 10,5 cm lang** (beide gleich). Wird im Code nicht gebraucht: wie weit die Ketten
@@ -183,8 +185,11 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - **Bibliotheken:** `brickpi3` (Motoren), `smbus2` (Farbsensor), `lgpio` (Ultraschall), `gpiozero` (Taster).
 - **Drehzahlen beim Einmessen umrechnen** (entschieden 2026-11-04): Ändert sich `MOTOR_DEG_PER_CM`, werden alle
   Werte in `config.py`, die in Drehzahl (dps) oder Encodergrad angegeben sind, mit demselben Faktor umgerechnet
-  (Fahr-/Drehtempo, `TURN_SLOW_DEG`, `STALL_DEG`, `STEER_KP/KD/MAX/SLEW`, Schätzung `MOTOR_DEG_PER_90`;
+  (Fahr-/Drehtempo, `STALL_DEG`, `STEER_KP/KD/MAX/SLEW`, Schätzung `MOTOR_DEG_PER_90`;
   `STEER_ENC_K` bleibt). So fährt der Roboter körperlich wie in der Simulation eingestellt (ca. 13 cm/s).
+- **Kein Langsamwerden vor dem Ziel** (entschieden 2026-11-04, Vorgabe Projektinhaber): Fahren und Drehen immer mit
+  normalem Tempo (`DRIVE_SPEED_DPS`, `TURN_SPEED_DPS`) bis zum Ziel, dort bremsen. (Vorher: letzte 5 cm bzw. letzte
+  Encodergrad einer Drehung langsam.) Nach jeder Aktion hält er weiterhin an.
 - **Geradeaus:** PD-Regler (geändert 2026-11-03, Vorgabe Projektinhaber):
   - **Grundregel: links und rechts gleich** (Abweichung = (links − rechts) / 2). Keine feste
     Wandgrenze (z.B. 20 cm) beim Lenken. Die 20-cm-Grenze gilt nur für die Karte (Messung in Kachelmitte).
@@ -399,6 +404,10 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 - Drift beim Geradeausfahren: ca. 10° nach rechts auf 98,5 cm, obwohl beide Encoder gleich liefen. Mechanik prüfen
   (Kettenspannung, etwas schleift)? Wiederholbar? Ausgleich (z.B. Faktor pro Kette) oder Seitenwände/Gyro?
+- Schrägstand-Schätzung aus den Seitenwänden unterschätzt in der Fahrphysik (ohne Rauschen) um ca. 40 %
+  (aus 10° Startschräge: geschätzt −0,66°, wirklich −1,10°), der Fehler wächst mit der Lenkbewegung.
+  Vermutete Ursache: links/rechts werden abwechselnd gemessen, die Abweichung nutzt eine ältere Seite, die
+  herausgerechnete Encoder-Drehung passt dann zeitlich nicht. Untersuchen/beheben?
 
 Zum Gyro (vor dem Umsetzen klären):
 - Simulation: Gyro in `simulation/sim_hardware.py` nachbilden (Rauschen, Nullpunktdrift, Skalierungsfehler)?

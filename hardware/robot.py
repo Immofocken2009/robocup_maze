@@ -397,7 +397,7 @@ class RealRobot(RobotInterface):
             if remaining <= 0:
                 self.trace("angekommen", gefahren=travelled, halt_bei=stop_at)
                 break
-            speed = config.DRIVE_SPEED_DPS if remaining > config.DRIVE_SLOW_CM else config.DRIVE_SLOW_DPS
+            speed = config.DRIVE_SPEED_DPS
             l, r = self.encoders
             corr = steering.hold(travelled, (l - l0, r - r0))
             self.trace("fahrt", gefahren=travelled, halt_bei=stop_at, rest=remaining, tempo=speed,
@@ -509,7 +509,7 @@ class RealRobot(RobotInterface):
             remaining = target - done
             if remaining <= 0 or stall.stalled(self.encoders):
                 break
-            speed = config.TURN_SPEED_DPS if remaining > config.TURN_SLOW_DEG else config.TURN_SLOW_DPS
+            speed = config.TURN_SPEED_DPS
             self.trace("drehen", winkel=deg, ziel=target, gedreht=done, rest=remaining, tempo=speed)
             self.motors.set_dps(direction * speed, -direction * speed)
             self.motion = {**(self.motion or {}),
@@ -529,7 +529,7 @@ class RealRobot(RobotInterface):
             remaining = abs(cm) - done
             if remaining <= 0 or stall.stalled(self.encoders):
                 break
-            speed = config.DRIVE_SPEED_DPS if remaining > config.DRIVE_SLOW_CM else config.DRIVE_SLOW_DPS
+            speed = config.DRIVE_SPEED_DPS
             l, r = self.encoders
             corr = _clamp(config.STEER_ENC_K * ((l - l0) - (r - r0)), config.STEER_MAX_DPS)
             self.trace("strecke", ziel=cm, gefahren=done, rest=remaining, tempo=speed, korrektur=corr)
