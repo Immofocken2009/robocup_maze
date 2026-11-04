@@ -579,6 +579,7 @@ async def run_download(request: web.Request) -> web.FileResponse:
 #
 # WLAN über NetworkManager (nmcli, ohne Shell). Die Seite legt WLAN-Verbindungen an (Name robocup-<Netz>), startet
 # und löscht sie. LAN behält Vorrang: Verbindungen der Seite bekommen Routenmetrik 600, LAN hat 100.
+# Sie laufen ohne WLAN-Energiesparen (das kann die Live-Seite über WLAN verzögern).
 # Ein Passwort steht nur während des Aufrufs in der Befehlszeile, nie in Meldungen oder im Log.
 # Der Dienst läuft ohne angemeldete Sitzung: ohne robocup-network.rules (polkit) verweigert NetworkManager Änderungen.
 
@@ -820,7 +821,8 @@ class Network:
     async def add_profile(self, wifi: str, ssid: str, kind: str, password: str | None, hidden: bool) -> str:
         args = ["connection", "add", "type", "wifi", "ifname", wifi, "con-name", config.NET_WIFI_PREFIX + ssid,
                 "ssid", ssid, "connection.autoconnect", "yes",
-                "ipv4.route-metric", str(config.NET_WIFI_METRIC), "ipv6.route-metric", str(config.NET_WIFI_METRIC)]
+                "ipv4.route-metric", str(config.NET_WIFI_METRIC), "ipv6.route-metric", str(config.NET_WIFI_METRIC),
+                "802-11-wireless.powersave", str(config.NET_WIFI_POWERSAVE)]
         if hidden:
             args += ["802-11-wireless.hidden", "yes"]
         if kind in ("psk", "sae"):

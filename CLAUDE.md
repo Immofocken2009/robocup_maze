@@ -339,6 +339,9 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   - **LAN hat Vorrang:** NetworkManager gibt LAN die Routenmetrik 100; Verbindungen, die die Seite anlegt, bekommen
     `ipv4/ipv6.route-metric` = `NET_WIFI_METRIC` (600) ausdrücklich. Beide gleichzeitig verbunden: der Pi nutzt LAN
     und ist trotzdem über beide Adressen erreichbar. Die Seite zeigt, was gerade genutzt wird.
+    **WLAN-Energiesparen aus** (Vorgabe Projektinhaber 2026-11-04): Verbindungen der Seite bekommen
+    `802-11-wireless.powersave` = `NET_WIFI_POWERSAVE` (2 = aus), damit die Live-Seite über WLAN nicht verzögert.
+    Gilt nur für diese Verbindungen: das netplan-Profil „Immoh“ und die Schnittstelle selbst bleiben im Standard.
   - **Eigene Verbindungen:** heißen `robocup-<Netzname>` (`NET_WIFI_PREFIX`), laufen mit Autoverbinden und systemweit
     gespeichertem Passwort (`psk-flags 0`, geht auch ohne angemeldeten Benutzer). Nur diese kann die Seite löschen,
     und nur wenn sie gerade nicht verbunden sind (serverseitig geprüft, nicht nur im Browser). Schlägt das Verbinden
@@ -505,6 +508,8 @@ Zum Gyro (vor dem Umsetzen klären):
   `nmcli` hält nur bis zum Neustart. Darum fasst die Webseite sie nicht an.
 - `nmcli device wifi list --rescan yes` meldet auch ohne Berechtigung Erfolg und zeigt dann die alte Liste.
 - WLAN-Energiesparen ist auf `wlan0` an (`iw dev wlan0 get power_save`), kann die Live-Seite über WLAN verzögern.
+  Verbindungen der Seite schalten es ab (`NET_WIFI_POWERSAVE`); für das netplan-Profil „Immoh“ ginge das nur
+  für alle Verbindungen zusammen über eine NetworkManager-Datei in `/etc/NetworkManager/conf.d/` (`wifi.powersave = 2`).
 
 - **BrickPi3 verliert einzelne Schreibbefehle** (gemessen 2026-11-04, ohne zweites Programm): von zwei Nachrichten
   direkt hintereinander ging die zweite in ca. 5 % verloren; auch eine einzelne Nachricht direkt nach anderen

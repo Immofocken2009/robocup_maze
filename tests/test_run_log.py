@@ -215,6 +215,7 @@ class NetworkTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(add[add.index("ipv4.route-metric") + 1], str(config.NET_WIFI_METRIC))
         self.assertEqual(add[add.index("wifi-sec.key-mgmt") + 1], "wpa-psk")
         self.assertEqual(add[add.index("wifi-sec.psk-flags") + 1], "0")
+        self.assertEqual(add[add.index("802-11-wireless.powersave") + 1], str(config.NET_WIFI_POWERSAVE))
         self.assertEqual(add[add.index("con-name") + 1], config.NET_WIFI_PREFIX + "Heim:Netz")
         self.assertTrue(any(s["ssid"] == "Heim:Netz" and s["managed"] for s in status["saved"]))
 

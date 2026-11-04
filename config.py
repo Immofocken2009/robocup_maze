@@ -139,6 +139,7 @@ WEB_PORT = 8000
 # --- Netzwerk (Webseite, Reiter „Netzwerk“) --------------------------------------
 NET_WIFI_PREFIX = "robocup-"    # WLAN-Verbindungen, die die Seite anlegt, heißen so; nur diese löscht sie wieder
 NET_WIFI_METRIC = 600           # Routenpriorität dieser Verbindungen; LAN hat 100 und gewinnt immer
+NET_WIFI_POWERSAVE = 2          # WLAN-Energiesparen dieser Verbindungen: 2 = aus (NetworkManager: 0 Standard, 1 ignorieren, 3 an)
 NET_QUERY_S = 15                # nmcli-Abfragen: so lange höchstens warten
 NET_SCAN_S = 25                 # Suche nach Netzen
 NET_CONNECT_S = 30              # Verbinden (nmcli -w)
