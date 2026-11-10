@@ -199,6 +199,9 @@ def replay_run(records: list[dict], show_calc: bool = False) -> tuple[bool, str]
                       clock=ReplayClock(replay))
     robot.corridor_cm = head["corridor_cm"]
     robot._read_interrupt = lambda: replay.sparse("robot._read_interrupt")
+    if any(rec.get("src") == "robot.load_settings" for rec in replay.inputs):   # Lauf mit Einstellungen der Webseite
+        robot.settings_file = config.SETTINGS_FILE
+        robot.load_settings = lambda: replay.take("robot.load_settings")
     robot.trace = replay.calc
     explorer = Explorer(robot, red_mode=head["red_mode"], trace=replay.calc)
     counts = lambda: f"{replay.i} von {len(replay.inputs)} Hardware-Aufrufen, {replay.c} von {len(replay.calcs)} Rechenschritten"

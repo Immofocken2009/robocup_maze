@@ -14,6 +14,7 @@
       <button type="button" role="tab" id="tab-sim" aria-controls="view-sim" aria-selected="false">Simulation</button>
       <button type="button" role="tab" id="tab-log" aria-controls="view-log" aria-selected="false">Aufzeichnung</button>
       <button type="button" role="tab" id="tab-net" aria-controls="view-net" aria-selected="false">Netzwerk</button>
+      <button type="button" role="tab" id="tab-set" aria-controls="view-set" aria-selected="false">Einstellungen</button>
     </nav>
     <span id="conn" class="conn">Verbinde …</span>
   </header>
@@ -351,6 +352,22 @@
         </form>
       </section>
     </aside>
+  </div>
+
+  <!-- Einstellungen --------------------------------------------------------------->
+  <div id="view-set" class="layout" role="tabpanel" aria-labelledby="tab-set" hidden>
+    <main class="stage">
+      <div class="toolbar">
+        <p class="status"><b>Lenkung beim Geradeausfahren</b></p>
+      </div>
+      <ul id="st-messages" class="warnings" aria-live="polite"></ul>
+      <form id="st-form" class="settings"></form>
+      <div class="actions">
+        <button type="button" id="st-save" class="primary">Speichern</button>
+        <button type="button" id="st-reset">Auf Standard zurücksetzen</button>
+      </div>
+      <p id="st-note" class="muted small"></p>
+    </main>
   </div>
 
   <script src="app.js"></script>

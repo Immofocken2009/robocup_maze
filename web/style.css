@@ -339,6 +339,15 @@ table.raw tr.future td { color: var(--muted); opacity: .7; }
 
 /* --- Schmale Bildschirme: eine Spalte, größere Tippflächen ---------------------- */
 
+/* Einstellungen */
+.settings { display: flex; flex-direction: column; gap: 1.4rem; max-width: 36rem; margin-bottom: 1.2rem; }
+.setting { display: flex; flex-direction: column; gap: .3rem; }
+.setting label { font-weight: 600; }
+.setting .controls { display: flex; align-items: center; gap: .75rem; }
+.setting .controls input[type="range"] { flex: 1; min-width: 0; }
+.setting .controls input[type="number"] { width: 6.5rem; }
+.setting p { margin: 0; }
+
 @media (pointer: coarse) {
   button, select { min-height: 2.75rem; }
 }
@@ -357,5 +366,5 @@ table.raw tr.future td { color: var(--muted); opacity: .7; }
   .conn { order: 1; padding-top: .5rem; }
   .views { order: 2; width: 100%; border-bottom: 1px solid var(--rule); }
   .views { gap: 0; }
-  .views button { flex: 1; padding: 0 .2rem; font-size: .9rem; }   /* vier Reiter müssen auf 360 px passen */
+  .views button { flex: 1; padding: 0 .1rem; font-size: .75rem; }   /* fünf Reiter müssen auf 360 px passen */
 }

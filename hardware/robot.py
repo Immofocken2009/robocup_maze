@@ -253,13 +253,15 @@ class StallWatch:
 
 class RealRobot(RobotInterface):
     def __init__(self, motors: Motors, ultrasonic: Ultrasonic, color: ColorSensor,
-                 on_change: Callable[[], None] | None = None, clock=time):
+                 on_change: Callable[[], None] | None = None, clock=time, settings_file=None):
         self.motors = motors
         self.us = ultrasonic
         self.color = color
         self.on_change = on_change or (lambda: None)   # nach jeder Änderung (Anzeige, wird gedrosselt)
         self.trace = lambda what, **values: None        # jeder Rechenschritt (Aufzeichnung, hardware/run_log.py)
         self.clock = clock      # monotonic() und sleep(); die Simulation gibt ihre Sim-Uhr hinein
+        self.settings_file = settings_file      # Einstellungen der Webseite; None = nur die Werte aus config.py
+        self._defaults = {name: getattr(config, name) for name in config.STEER_SETTINGS}
 
         self._interrupt: str | None = None
         self.started_at: float | None = None
@@ -316,6 +318,19 @@ class RealRobot(RobotInterface):
             return config.CALIBRATION_TIME_S
         return config.CALIBRATION_TIME_S + self.clock.monotonic() - self.started_at
 
+    def load_settings(self) -> dict:
+        """Einstellungen der Webseite lesen (eigene Methode, damit die Aufzeichnung sie mitschreibt)."""
+        return config.read_settings(self.settings_file)
+
+    def apply_settings(self):
+        """Vor jeder Fahrt: Lenk-Einstellungen der Webseite übernehmen (nicht gesetzte = Standardwerte)."""
+        if not self.settings_file:
+            return
+        values = self.load_settings()
+        for name, default in self._defaults.items():
+            setattr(config, name, values.get(name, default))
+        self.trace("einstellungen", werte={name: getattr(config, name) for name in self._defaults})
+
     def read_walls(self) -> dict[str, bool]:
         self._begin("misst Wände")
         values = self.us.read_all(config.US_READINGS)
@@ -339,6 +354,7 @@ class RealRobot(RobotInterface):
         return self._measure_floor()
 
     def forward(self, avoid: set[TileType]) -> MoveResult:
+        self.apply_settings()
         self._begin("prüft vorne")
         front = self.us.median("front")
         if front is not None and front < config.WALL_THRESHOLD_CM:

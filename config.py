@@ -2,6 +2,8 @@
 
 Werte mit "MESSEN!" sind Schätzungen und müssen an den echten Roboter angepasst werden.
 """
+import json
+import os
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -88,6 +90,44 @@ STEER_D_WINDOW_CM = 4.0     # Schrägstand über so viele cm Fahrt bestimmen
 STEER_ENC_K = 2.0           # ohne Seitenwand: Lenkkorrektur (dps) pro Encodergrad Unterschied (bleibt beim Umrechnen)
 STEER_MAX_DPS = 73.0
 STEER_SLEW_DPS_PER_CM = 24.0    # Lenkkorrektur ändert sich pro gefahrenem cm höchstens um so viel
+# Einstellbar auf der Webseite (Reiter Einstellungen): Name -> (Bezeichnung, Einheit, kleinster, größter Wert, Hilfe).
+# Die Webseite schreibt Abweichungen von den Werten oben nach SETTINGS_FILE, der Roboter liest sie vor jeder Fahrt.
+SETTINGS_FILE = PROJECT_DIR / "data" / "settings.json"
+STEER_SETTINGS = {
+    "STEER_KP": ("Lenkstärke (Kp)", "dps pro cm", 0.0, 40.0,
+                 "Wie stark er gegenlenkt, wenn er von der Mitte zwischen den Wänden abweicht."),
+    "STEER_KD": ("Dämpfung (Kd)", "dps pro cm/cm", 0.0, 800.0,
+                 "Wie stark er auf Schrägstand reagiert. Zu klein: pendelt. Zu groß: zittert."),
+    "STEER_MAX_DPS": ("Größte Lenkung", "dps", 5.0, 150.0,
+                      "So viel schneller darf eine Kette höchstens werden, wenn er lenkt."),
+    "STEER_SLEW_DPS_PER_CM": ("Lenkänderung", "dps pro cm Fahrt", 1.0, 150.0,
+                              "Wie schnell sich die Lenkung ändern darf. Klein: weich, aber träge."),
+}
+
+
+def read_settings(path: Path = SETTINGS_FILE) -> dict[str, float]:
+    """Gespeicherte Einstellungen (nur bekannte Namen, nur Zahlen im erlaubten Bereich). Fehlt die Datei oder ist
+    sie kaputt, gelten die Standardwerte (leeres Ergebnis)."""
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+    values = {}
+    for name, (_label, _unit, low, high, _help) in STEER_SETTINGS.items():
+        v = data.get(name) if isinstance(data, dict) else None
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and low <= v <= high:
+            values[name] = float(v)
+    return values
+
+
+def write_settings(values: dict[str, float], path: Path = SETTINGS_FILE):
+    """Einstellungen speichern (ganz oder gar nicht: erst in eine Hilfsdatei, dann umbenennen)."""
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(values, indent=2) + "\n")
+    os.replace(tmp, path)
+
+
 STEER_WIDTH_JUMP_CM = 1.0       # Breiten-Wächter: links + rechts weicht um mehr von B ab -> Seite ignorieren
                                 # (Fehlalarm ist harmlos: dann kurz nur an einer Wand)
 STEER_STEADY_CM = 1.5           # zurückkehrende Wand: 2 Messungen hintereinander mit höchstens so viel Unterschied

@@ -158,7 +158,7 @@ class Recorder:
         extra = {"measure": lambda: {"ns": us.last_echo_ns}} if hasattr(us, "last_echo_ns") else None
         self.instrument(us, "us", ["ready", "measure"], extra=extra)
         self.instrument(robot.color, "color", ["read_raw"])
-        self.instrument(robot, "robot", ["_read_interrupt"], sparse=("_read_interrupt",))
+        self.instrument(robot, "robot", ["_read_interrupt", "load_settings"], sparse=("_read_interrupt",))
         robot.trace = self.calc
 
     def _wrap(self, src: str, fn, sparse: bool, extra):

@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import config
 import main
@@ -24,13 +25,14 @@ from web.server import (NEEDED_PERMISSIONS, SETUP_COMMAND, Network, NetworkError
                         parse_networks, split_terse, wifi_security)
 
 
-def record(path: Path, lop_at_s: float | None = None, seed: int = 1) -> Explorer:
+def record(path: Path, lop_at_s: float | None = None, seed: int = 1, settings_file: Path | None = None) -> Explorer:
     """Einen Lauf mit Rauschen und Schlupf aufzeichnen; lop_at_s: dann K3 drücken (Lack of Progress)."""
     world = SimWorld.load("sonderboeden")
     hw = SimHardware(world, noise=True, slip=True)
     hw.body.rng = random.Random(seed)
     hw.ultrasonic.rng = random.Random(seed + 1000)
     robot = SimDrivingRobot(hw)
+    robot.settings_file = settings_file
     rec = Recorder()
     rec.attach(robot)
     if lop_at_s is not None:
@@ -75,6 +77,22 @@ class RunLogTest(unittest.TestCase):
         record(self.path)
         same, report = replay_run(read_run(self.path)[0])
         self.assertTrue(same, report)
+
+    def test_replay_with_web_settings(self):
+        """Einstellungen der Webseite werden mitgeschrieben und beim Nachrechnen wieder eingesetzt."""
+        settings = Path(self.dir.name) / "settings.json"
+        config.write_settings({"STEER_KP": 3.0, "STEER_MAX_DPS": 40.0}, settings)
+        with mock.patch.object(config, "STEER_KP", config.STEER_KP), \
+                mock.patch.object(config, "STEER_KD", config.STEER_KD), \
+                mock.patch.object(config, "STEER_MAX_DPS", config.STEER_MAX_DPS), \
+                mock.patch.object(config, "STEER_SLEW_DPS_PER_CM", config.STEER_SLEW_DPS_PER_CM):
+            record(self.path, settings_file=settings)
+            records = read_run(self.path)[0]
+            self.assertTrue(any(r.get("src") == "robot.load_settings" for r in records))
+            self.assertEqual(config.STEER_KP, 3.0)
+            config.write_settings({}, settings)             # Datei danach geändert: Nachrechnen nimmt die Aufzeichnung
+            same, report = replay_run(records)
+            self.assertTrue(same, report)
 
     def test_replay_with_lack_of_progress(self):
         record(self.path, lop_at_s=90.0)

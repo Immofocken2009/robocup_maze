@@ -159,7 +159,8 @@ class RobotProgram:
             for part in (Motors, Ultrasonic, ColorSensor):
                 self._parts.append(part())
             motors, us, color = self._parts
-            self.robot = RealRobot(motors, us, color, on_change=self.publish, clock=Clock())
+            self.robot = RealRobot(motors, us, color, on_change=self.publish, clock=Clock(),
+                                   settings_file=config.SETTINGS_FILE)
             self.rec.attach(self.robot)
             self.buttons = Buttons(self.on_button)
         except Exception as exc:

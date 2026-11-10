@@ -115,7 +115,7 @@ robocup/
 │                          #   (Ultraschall kalibrieren), replay_run.py (Lauf nachrechnen),
 │                          #   test_gyro.py (GEPLANT, noch umzusetzen)
 ├── tests/                 # automatische Tests der Logik (unittest)
-├── data/                  # Kalibrierwerte (colors.json, ultrasonic.json)
+├── data/                  # Kalibrierwerte (colors.json, ultrasonic.json), Einstellungen der Webseite (settings.json)
 └── logs/                  # Aufzeichnungen der echten Läufe (ein Lauf = eine .jsonl.gz-Datei, nicht in Git)
 ```
 
@@ -284,6 +284,17 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Messpunkten). Einzelne Sensoren neu kalibrierbar, die anderen bleiben. `hardware/ultrasonic.py` korrigiert jede
   Messung. Ohne Kalibrierung (oder für einen fehlenden Sensor): Rohwerte und Warnung auf der Webseite.
   Die Kalibrierung steht im Kopf jeder Aufzeichnung. Die Simulation misst ohne Fehler und braucht keine.
+- **Reiter „Einstellungen“ (Lenkung)** (entschieden 2026-11-10, Vorgabe Projektinhaber): fünfter Reiter, stellt die Stärke der
+  Lenkung beim Geradeausfahren ein: `STEER_KP` (Lenkstärke), `STEER_KD` (Dämpfung), `STEER_MAX_DPS` (größte Lenkung),
+  `STEER_SLEW_DPS_PER_CM` (Lenkänderung); Liste, Bereiche und Hilfetexte in `config.STEER_SETTINGS`. Regler + Zahlenfeld,
+  „Speichern“, „Auf Standard zurücksetzen“. Gespeichert werden nur Abweichungen von `config.py` in **`data/settings.json`**
+  (neue Datei, freigegeben); fehlt der Eintrag oder die Datei, gilt `config.py`. `config.read_settings/write_settings`
+  prüfen Namen und Bereich (Webseite lehnt Werte außerhalb mit Meldung ab, Datei wird ganz oder gar nicht ersetzt).
+  Der Roboter liest die Datei **vor jeder Fahrt** (`RealRobot.apply_settings`, nur wenn `settings_file` gesetzt ist, also
+  nur in `main.py`; die Simulation und die Tests nutzen `config.py`), neue Werte gelten also ab der nächsten Kachel, auch im
+  Lauf, kein Neustart nötig. Aufzeichnung: das Lesen (`robot.load_settings`) ist ein aufgezeichneter Eingang, beim Nachrechnen
+  werden dieselben Werte wieder eingesetzt. Weitere `STEER_*`-Werte (D-Fenster, Encoder-Faktor, Breiten-Wächter) sind
+  bewusst nicht einstellbar; bei Bedarf in `STEER_SETTINGS` ergänzen.
 - **Ultraschall komplett ausgefallen erkennen** (entschieden 2026-11-10, Vorgabe Projektinhaber): Am 2026-11-10 lieferten
   alle drei Sensoren gleichzeitig fast nur „kein Echo“ (Aufzeichnung 14:23: vorne 162 von 170 ohne Echo, die übrigen
   Werte nur 2,6–8 cm = Störimpulse; derselbe Code lief nach dem Neustart normal) und der Roboter fuhr blind acht Kacheln

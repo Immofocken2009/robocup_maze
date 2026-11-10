@@ -181,6 +181,73 @@ class SensorsBlindTest(unittest.TestCase):
         self.assertIn("Ultraschall", explorer.mode)
 
 
+class SettingsTest(unittest.IsolatedAsyncioTestCase):
+    """Lenk-Einstellungen der Webseite (data/settings.json)."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.file = Path(self.dir.name) / "settings.json"
+        for name in config.STEER_SETTINGS:      # config wird verändert: nachher zurücksetzen
+            patcher = mock.patch.object(config, name, getattr(config, name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(self.dir.cleanup)
+
+    def test_read_ignores_missing_file_unknown_names_and_bad_values(self):
+        self.assertEqual(config.read_settings(self.file), {})
+        self.file.write_text("kaputt")
+        self.assertEqual(config.read_settings(self.file), {})
+        self.file.write_text(json.dumps({"STEER_KP": 3, "STEER_KD": 99999, "STEER_MAX_DPS": "x",
+                                         "STEER_SLEW_DPS_PER_CM": True, "ANDERES": 1}))
+        self.assertEqual(config.read_settings(self.file), {"STEER_KP": 3.0})
+
+    def test_write_and_read(self):
+        config.write_settings({"STEER_KP": 4.5}, self.file)
+        self.assertEqual(config.read_settings(self.file), {"STEER_KP": 4.5})
+        self.assertFalse(self.file.with_name("settings.json.tmp").exists())
+
+    def test_robot_applies_values_before_driving_and_restores_defaults(self):
+        default_kd = config.STEER_KD
+        config.write_settings({"STEER_KP": 2.0, "STEER_KD": 50.0}, self.file)
+        body = Body(wall_cm=None)
+        robot = RealRobot(FakeMotors(body), FakeUltrasonic(body), FakeColor(body), settings_file=self.file)
+        robot.forward(set())
+        self.assertEqual((config.STEER_KP, config.STEER_KD), (2.0, 50.0))
+        config.write_settings({"STEER_KP": 3.0}, self.file)         # KD nicht mehr gesetzt = Standard
+        robot.forward(set())
+        self.assertEqual((config.STEER_KP, config.STEER_KD), (3.0, default_kd))
+
+    def test_robot_without_file_keeps_config(self):
+        body = Body(wall_cm=None)
+        with mock.patch.object(config, "STEER_KP", 1.23):
+            make_robot(body).forward(set())
+            self.assertEqual(config.STEER_KP, 1.23)
+
+    async def test_server_saves_only_differences_and_validates(self):
+        from web import server
+
+        class Request:
+            def __init__(self, data):
+                self.data = data
+
+            async def json(self):
+                return self.data
+
+        read, write = config.read_settings, config.write_settings
+        with mock.patch.object(config, "read_settings", lambda path=self.file: read(path)), \
+                mock.patch.object(config, "write_settings", lambda values, path=self.file: write(values, path)):
+            ok = await server.settings_save(Request({"values": {"STEER_KP": 9.0, "STEER_KD": config.STEER_KD}}))
+            self.assertEqual(ok.status, 200)
+            self.assertEqual(read(self.file), {"STEER_KP": 9.0})            # Standardwert wird nicht gespeichert
+            shown = {s["name"]: s["value"] for s in json.loads(ok.text)["settings"]}
+            self.assertEqual(shown["STEER_KP"], 9.0)
+            bad = await server.settings_save(Request({"values": {"STEER_KP": 1000}}))
+            self.assertEqual(bad.status, 400)
+            self.assertEqual(read(self.file), {"STEER_KP": 9.0})            # nichts verändert
+            await server.settings_save(Request({"reset": True}))
+            self.assertEqual(read(self.file), {})
+
+
 class ForwardTest(unittest.TestCase):
     def test_stops_by_front_distance(self):
         body = Body(wall_cm=FACE + 2 * TILE)            # Wand am Ende der übernächsten Kachel
