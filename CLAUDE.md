@@ -3,7 +3,10 @@
 ## Arbeitsregeln (vom Projektinhaber festgelegt, gelten immer)
 
 1. **Vor jeder Änderung an Code wird der aktuelle Stand ins lokale Git committet.**
-   Erst committen, dann ändern. (Lokales Repo, Branch `main`, kein Remote.)
+   Erst committen, dann ändern. (Lokales Repo, Branch `main`.)
+   **Zusätzlich ab und zu pushen** (Vorgabe Projektinhaber 2026-11-10) nach GitHub: Remote `origin` =
+   https://github.com/Immofocken2009/robocup_maze.git (öffentlich, `gh` ist als Immofocken2009 angemeldet). Gepusht wird nach
+   abgeschlossenen Aufgaben (nicht nach jedem Commit), nie mit `--force`. Nicht ins Repo: `logs/`, Passwörter, Tokens.
 2. **Alle grundlegenden Regeln und Umsetzungsentscheidungen kommen in diese `CLAUDE.md`.**
    Wird etwas Neues festgelegt, wird es hier eingetragen.
 3. **Alle Strukturvorgaben kommen vom Projektinhaber.** Claude legt keine eigene
