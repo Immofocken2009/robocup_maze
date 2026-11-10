@@ -284,6 +284,17 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Messpunkten). Einzelne Sensoren neu kalibrierbar, die anderen bleiben. `hardware/ultrasonic.py` korrigiert jede
   Messung. Ohne Kalibrierung (oder für einen fehlenden Sensor): Rohwerte und Warnung auf der Webseite.
   Die Kalibrierung steht im Kopf jeder Aufzeichnung. Die Simulation misst ohne Fehler und braucht keine.
+- **Sackgasse: vor dem Wenden zurücksetzen** (entschieden 2026-11-10, Vorgabe Projektinhaber: schräg zurücksetzen): Beim Wenden um
+  180° in einer Sackgasse (Wand vorne und beide Seiten) stieß er mit den hinteren Ecken (mal links, mal rechts) an. Die
+  Aufzeichnungen 15:06 und 15:08 zeigen: die Encoder liefen beim Wenden normal durch (kein Stillstand erkannt), der Roboter stand
+  aber mit nur ca. 4 cm Abstand vorne (Soll 5,75 cm, Auslaufen ohne Bremse) und bis 2,7 cm außermittig. Die Ecken schwenken
+  auf 12,8 cm, die Wände stehen 14 cm von der Kachelmitte: nur 1,2 cm Luft. Jetzt (`RealRobot._center_dead_end`, aufgerufen
+  in `read_walls`, wenn alle drei Wände da sind): auf den Kachelmitten-Abstand vorne zurück und seitlich mittig, indem er um
+  `DEAD_END_ANGLE_DEG` (8°) von der näheren Wand weg dreht, schräg bis höchstens `DEAD_END_MAX_BACK_CM` (12 cm) zurücksetzt und
+  wieder gerade dreht; ab `DEAD_END_SIDE_MIN_CM` (1 cm) Versatz. Größerer Winkel geht nicht: beim Eindrehen schwenkt die
+  vordere Ecke zur näheren Wand (ab ca. 12° stößt sie an). **Bekannte Grenzen:** der Roboter steht danach bis ca. 11 cm hinter
+  der Kachelmitte (die nächste Fahrt korrigiert über den Abstand vorne, ohne Wand in Sicht nur nach Encoder: dann ca. so viel
+  zu kurz); die Simulation kennt keinen Eckenkontakt, getestet ist nur die Endlage. Nicht auf dem echten Roboter geprüft.
 - **Reiter „Einstellungen“ (Lenkung)** (entschieden 2026-11-10, Vorgabe Projektinhaber): fünfter Reiter, stellt die Stärke der
   Lenkung beim Geradeausfahren ein: `STEER_KP` (Lenkstärke), `STEER_KD` (Dämpfung), `STEER_MAX_DPS` (größte Lenkung),
   `STEER_SLEW_DPS_PER_CM` (Lenkänderung); Liste, Bereiche und Hilfetexte in `config.STEER_SETTINGS`. Regler + Zahlenfeld,

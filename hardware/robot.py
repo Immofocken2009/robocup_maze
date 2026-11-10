@@ -339,6 +339,8 @@ class RealRobot(RobotInterface):
         values = self.us.read_all(config.US_READINGS)
         self.walls = {side: v is not None and v < config.WALL_THRESHOLD_CM for side, v in values.items()}
         self.trace("wände", werte=values, wände=self.walls)
+        if all(self.walls.values()):
+            self._center_dead_end(values)
         self.blind_streak = self.blind_streak + 1 if all(v is None for v in values.values()) else 0
         self.on_change()
         if self.blind_streak >= config.US_BLIND_STOP:
@@ -346,6 +348,31 @@ class RealRobot(RobotInterface):
             self.trace("ultraschall_blind", streak=self.blind_streak)
             raise SensorsBlind(config.US_BLIND_WARN)
         return self.walls
+
+    def _center_dead_end(self, values: dict):
+        """Sackgasse: der Roboter muss hier auf der Stelle wenden, die Ecken schwenken auf 12,8 cm, die Wände stehen
+        nur 14 cm von der Kachelmitte. Darum vorher mittig setzen: vorne auf den Kachelmitten-Abstand zurück
+        (Auslaufen ohne Bremse schiebt ihn zu nah an die Wand) und seitlich mittig, indem er um einen kleinen
+        Winkel von der näheren Wand weg dreht, schräg zurücksetzt und wieder gerade dreht."""
+        front, left, right = values["front"], values["left"], values["right"]
+        back = max(0.0, config.FRONT_CENTER_CM - front)         # so weit zurück, bis vorne Luft ist
+        side = (left - right) / 2                               # > 0: zu nah an der rechten Wand, nach links
+        angle = dist = 0.0
+        if abs(side) > config.DEAD_END_SIDE_MIN_CM:
+            angle = config.DEAD_END_ANGLE_DEG
+            dist = min(abs(side) / math.sin(math.radians(angle)), config.DEAD_END_MAX_BACK_CM)
+        extra = max(0.0, back - dist * math.cos(math.radians(angle)))   # reicht der schräge Weg nicht nach hinten
+        self.trace("sackgasse", vorne=front, seite=side, zurück=back, winkel=angle, strecke=dist, gerade=extra)
+        if dist == 0.0 and extra < 0.5:
+            return
+        self.set_action("setzt in der Sackgasse zurück", f"{max(dist, extra):.0f} cm")
+        if angle:
+            turn = angle if side > 0 else -angle                # nach links schieben = erst nach rechts drehen
+            self._rotate(turn)
+            self.drive_cm(-dist)
+            self._rotate(-turn)
+        if extra >= 0.5:
+            self.drive_cm(-extra)
 
     def us_blind(self) -> bool:
         """Für die Anzeige: alle drei Sensoren ohne Echo (im Stand sofort, im Lauf ab der ersten Wandmessung)."""

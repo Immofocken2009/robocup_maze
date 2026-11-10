@@ -122,3 +122,50 @@ class ExploreTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeadEndTest(unittest.TestCase):
+    """Sackgasse: vor dem Wenden mittig zurücksetzen (Ecken schwenken auf 12,8 cm, Wand 14 cm von der Mitte)."""
+
+    def setup_dead_end(self, x_offset: float, front_cm: float):
+        tiles = [{"x": 0, "y": 0, "walls": "EW", "floor": "normal"}, {"x": 0, "y": 1, "walls": "EWN", "floor": "normal"}]
+        world = SimWorld.from_dict({"width": 1, "height": 2, "start": [0, 1], "tiles": tiles})
+        hw = SimHardware(world)
+        robot = SimDrivingRobot(hw)
+        robot.start_clock()
+        hw.body.x = TILE / 2 + x_offset
+        hw.body.y = 2 * TILE - 1 - (front_cm + config.ROBOT_LENGTH_CM / 2)   # Innenseite der Nordwand bei 2·TILE - 1
+        return hw, robot
+
+    def measure(self, hw):
+        return {side: hw.body.distance(side) for side in ("front", "left", "right")}
+
+    def test_backs_up_to_tile_centre_distance(self):
+        hw, robot = self.setup_dead_end(0.0, 3.5)
+        robot.read_walls()
+        d = self.measure(hw)
+        self.assertGreaterEqual(d["front"], config.FRONT_CENTER_CM - 0.8)
+        self.assertAlmostEqual(hw.body.heading, 0.0, delta=1.5)
+
+    def test_side_offset_is_reduced_without_turning_the_robot(self):
+        for offset in (2.5, -2.5):
+            hw, robot = self.setup_dead_end(offset, 4.0)
+            before = abs(hw.body.x - TILE / 2)
+            robot.read_walls()
+            self.assertLess(abs(hw.body.x - TILE / 2), before - 0.8)         # deutlich mittiger
+            self.assertAlmostEqual(hw.body.heading, 0.0, delta=1.5)           # wieder gerade
+
+    def test_centered_robot_stays_put(self):
+        hw, robot = self.setup_dead_end(0.0, config.FRONT_CENTER_CM)
+        x, y = hw.body.x, hw.body.y
+        robot.read_walls()
+        self.assertAlmostEqual(hw.body.y, y, delta=0.8)
+        self.assertAlmostEqual(hw.body.x, x, delta=0.5)
+
+    def test_open_side_does_not_trigger(self):
+        hw = SimHardware(corridor(3))
+        robot = SimDrivingRobot(hw)
+        robot.start_clock()
+        y = hw.body.y
+        robot.read_walls()
+        self.assertEqual(hw.body.y, y)

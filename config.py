@@ -138,6 +138,11 @@ CORRIDOR_MAX_CM = CORRIDOR_CM + TILE_SIZE_CM / 2    # links + rechts größer = 
 # Schrägstand aus den Seitenwänden (statt Ausrichten an Wänden), am Kachelende geradedrehen
 HEADING_MIN_SAMPLES = 4         # so viele Seitenmessungen mit zwei Wänden braucht die Schätzung mindestens
 HEADING_MIN_SPAN_CM = 10.0      # über so viele cm Fahrt verteilt
+# Sackgasse (Wand vorne und beide Seiten): vor dem Wenden zurücksetzen, damit die Ecken beim Drehen nicht anstoßen
+# (Drehkreis der Ecken 12,8 cm, Wandabstand von der Kachelmitte 14 cm = nur 1,2 cm Luft).
+DEAD_END_SIDE_MIN_CM = 1.0      # seitlicher Versatz zur Mitte, ab dem er schräg zurücksetzt
+DEAD_END_ANGLE_DEG = 8.0        # so weit schräg (größer: die vordere Ecke stößt beim Eindrehen an die nähere Wand)
+DEAD_END_MAX_BACK_CM = 12.0     # so weit höchstens schräg zurück
 HEADING_FIX_MIN_DEG = 1.0       # kleinerer Schrägstand: nicht drehen
 HEADING_FIX_MAX_DEG = 15.0      # höchstens so weit drehen
 

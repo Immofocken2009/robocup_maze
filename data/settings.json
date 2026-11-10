@@ -1,4 +1,6 @@
 {
-  "STEER_KP": 6.5,
-  "STEER_KD": 200.0
+  "STEER_KP": 11.5,
+  "STEER_KD": 215.0,
+  "STEER_MAX_DPS": 80.0,
+  "STEER_SLEW_DPS_PER_CM": 35.0
 }
