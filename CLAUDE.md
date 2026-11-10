@@ -294,7 +294,7 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   wieder gerade dreht; ab `DEAD_END_SIDE_MIN_CM` (1 cm) Versatz. Größerer Winkel geht nicht: beim Eindrehen schwenkt die
   vordere Ecke zur näheren Wand (ab ca. 12° stößt sie an). **Bekannte Grenzen:** der Roboter steht danach bis ca. 11 cm hinter
   der Kachelmitte (die nächste Fahrt korrigiert über den Abstand vorne, ohne Wand in Sicht nur nach Encoder: dann ca. so viel
-  zu kurz); die Simulation kennt keinen Eckenkontakt, getestet ist nur die Endlage. Nicht auf dem echten Roboter geprüft.
+  zu kurz). In der Fahrphysik hängt er ohne das Zurücksetzen bei 2,7 cm Versatz und 4 cm Abstand vorne beim Wenden (Ecke streift, Ketten rutschen), mit Zurücksetzen dreht er sauber 180° (Test `DeadEndTest`). Nicht auf dem echten Roboter geprüft.
 - **Reiter „Einstellungen“ (Lenkung)** (entschieden 2026-11-10, Vorgabe Projektinhaber): fünfter Reiter, stellt die Stärke der
   Lenkung beim Geradeausfahren ein: `STEER_KP` (Lenkstärke), `STEER_KD` (Dämpfung), `STEER_MAX_DPS` (größte Lenkung),
   `STEER_SLEW_DPS_PER_CM` (Lenkänderung); Liste, Bereiche und Hilfetexte in `config.STEER_SETTINGS`. Regler + Zahlenfeld,

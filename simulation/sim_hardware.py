@@ -27,14 +27,24 @@ TILE = config.TILE_SIZE_CM
 WALL_HALF = config.WALL_THICKNESS_CM / 2
 LENGTH, WIDTH = config.ROBOT_LENGTH_CM, config.ROBOT_WIDTH_CM
 PHYSICS_DT = 0.01           # Sim-Schritt in s (so lang wie ein Takt der Regelschleifen)
-MOTOR_TAU_S = 0.05          # so schnell folgt die Drehzahl dem Befehl (Regelung im BrickPi3)
+MOTOR_TAU_S = 0.05          # so schnell folgt die Drehzahl dem Befehl (Regelung im BrickPi3), gemessen 2026-11-10: ca. 0,055 s
+MOTOR_TAU_FLOAT_S = 0.012   # stromlos (Befehl 0): Ausrollen ca. 2-4 Encodergrad bei 183-244 dps (gemessen 2026-11-10)
 # Kettenabstand so gewählt, dass MOTOR_DEG_PER_90 genau 90° ergibt: die Simulation fährt "wie eingemessen"
 TRACK_CM = 4 * config.MOTOR_DEG_PER_90 / config.MOTOR_DEG_PER_CM / math.pi
 US_CONE_DEG = 15.0          # halber Öffnungswinkel des Schallkegels
-US_NOISE_CM = 0.4           # Messrauschen (Standardabweichung), wenn eingeschaltet
-US_DROPOUT = 0.03           # Anteil Messungen ohne Echo, wenn Rauschen eingeschaltet
+US_NOISE_CM = 0.4           # Messrauschen beim Fahren (Standardabweichung, gemessen 2026-11-10: 0,42), wenn eingeschaltet
+US_NOISE_STILL_CM = 0.03    # im Stand (gemessen 2026-11-10: 0,01-0,03)
+US_DROPOUT = 0.003          # Anteil Messungen ohne Echo, wenn Rauschen eingeschaltet (gemessen 2026-11-10: 0-0,7 %)
 # Schlupf: streut um den eingemessenen Wert (MOTOR_DEG_PER_CM und MOTOR_DEG_PER_90 enthalten den mittleren Schlupf)
 SLIP_MAX = 0.03             # die Ketten rutschen unterschiedlich, bis 3 % Unterschied
+DRIVE_SLIP = 0.12           # beim Geradeausfahren (normales Tempo) legt er 12 % weniger zurück, als die Encoder zählen
+                            # (gemessen 2026-11-10: Abstand vorne sinkt um 0,87 der Encoderstrecke; MOTOR_DEG_PER_CM
+                            # wurde mit halbem Tempo eingemessen). Drehen ist davon nicht betroffen (eingemessen).
+DRIFT_BIAS = 0.043          # rechte Kette macht immer so viel weniger Weg: 10° nach rechts auf 98,5 cm bei gleichen Encodern
+                            # (gemessen 2026-11-04); die Lenkung hält im Mittel ca. 4-6° je Kachel dagegen (Logs 2026-11-10)
+CORNER_SOFT_CM = 0.03       # Drehen auf der Stelle: so tief muss eine Ecke in die Wand drücken, bevor die Ketten durchrutschen
+                            # (er dreht dann nicht mehr). Keine Messung: so abgestimmt, dass er in der Sackgasse bei 2,7 cm
+                            # Versatz und 4 cm Abstand vorne wie am echten Roboter hängen bleibt, bei 1,5 cm nicht.
 TURN_SKID = 0.04            # Drehungen streuen bis ±4 % um den eingemessenen Wert
 TILE_COLORS = {tile: name for name, tile in COLOR_TO_TILE.items()}
 RAW = {"white": (900, 850, 700, 2500), "black": (60, 60, 50, 170), "blue": (150, 300, 600, 1000),
@@ -178,9 +188,9 @@ class SimBody:
 
     def step(self, dt: float):
         self.time += dt
-        follow = min(1.0, dt / MOTOR_TAU_S)
         for i in (0, 1):
-            self.speed[i] += (self.command[i] - self.speed[i]) * follow
+            tau = MOTOR_TAU_S if self.command[i] else MOTOR_TAU_FLOAT_S
+            self.speed[i] += (self.command[i] - self.speed[i]) * min(1.0, dt / tau)
         if abs(self.speed[0]) < 1e-3 and abs(self.speed[1]) < 1e-3:
             self.speed = [0.0, 0.0]
             return
@@ -190,7 +200,8 @@ class SimBody:
 
         ground = []
         for i in (0, 1):
-            v = self.speed[i] / config.MOTOR_DEG_PER_CM * (1 - (self._slip[i] if self.slip_on else 0))
+            lost = (self._slip[i] + (DRIFT_BIAS if i == 1 else 0.0)) if self.slip_on else 0.0
+            v = self.speed[i] / config.MOTOR_DEG_PER_CM * (1 - lost)
             if v and self._track_blocked(i, 1 if v > 0 else -1):
                 v = 0.0
                 self.speed[i] = 0.0         # Kette steht an der Wand, Motor blockiert
@@ -200,6 +211,8 @@ class SimBody:
         if self.slip_on:
             turn *= 1 + self._turn_err
         v = (ground[0] + ground[1]) / 2
+        if self.slip_on:
+            v *= 1 - DRIVE_SLIP
         heading = self.heading + math.degrees(turn * dt)
         mid = math.radians((self.heading + heading) / 2)
         if self._move(v * dt * math.sin(mid), v * dt * math.cos(mid), heading):
@@ -215,11 +228,12 @@ class SimBody:
         px, py = self.point(lateral, direction * (LENGTH / 2 + 0.3))
         return any(_dist(px, py, seg) < WALL_HALF for seg in self._segments_near(self.x, self.y))
 
-    def _collides(self, x: float, y: float, heading: float) -> Segment | None:
+    def _collides(self, x: float, y: float, heading: float, soft: float = 0.0) -> Segment | None:
+        """soft: so tief darf eine Ecke in die Wand drücken (Wand gibt nach), ohne dass es als Kollision zählt."""
         fx, fy, rx, ry = self._axes(heading)
         points = [(x + a * rx + b * fx, y + a * ry + b * fy) for a, b in _OUTLINE]
         for seg in self._segments_near(x, y):
-            if any(_dist(px, py, seg) < WALL_HALF for px, py in points):
+            if any(_dist(px, py, seg) < WALL_HALF - soft for px, py in points):
                 return seg
             for ex, ey in ((seg[0], seg[1]), (seg[2], seg[3])):     # Wandende ragt in den Roboter
                 lat = (ex - x) * rx + (ey - y) * ry
@@ -234,6 +248,9 @@ class SimBody:
         if seg is None:
             self.x, self.y, self.heading = self.x + dx, self.y + dy, heading
             return True
+        if (abs(heading - self.heading) > 0.3 and math.hypot(dx, dy) < 0.05
+                and self._collides(self.x + dx, self.y + dy, heading, CORNER_SOFT_CM)):
+            return True     # Drehen auf der Stelle, Ecke streift die Wand: Ketten rutschen, Encoder zählen, er dreht nicht
         ux, uy = seg[2] - seg[0], seg[3] - seg[1]
         length = math.hypot(ux, uy)
         ux, uy = ux / length, uy / length
@@ -353,7 +370,9 @@ class SimUltrasonic:
         self._last_ping = self.clock.monotonic()
         cm = self.body.distance(side)
         if self.noise:
-            cm = None if self.rng.random() < US_DROPOUT else cm + self.rng.gauss(0, US_NOISE_CM)
+            still = not any(self.body.speed)
+            cm = None if self.rng.random() < US_DROPOUT else cm + self.rng.gauss(
+                0, US_NOISE_STILL_CM if still else US_NOISE_CM)
         if cm is not None and cm > config.US_MAX_DISTANCE_CM:
             cm = None
         self.last[side] = cm
