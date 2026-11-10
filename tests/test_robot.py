@@ -20,7 +20,7 @@ import config
 import hardware.motors
 from hardware.color_sensor import classify
 from hardware.motors import Motors
-from hardware.robot import HeadingEstimate, LackOfProgress, RealRobot, RunStopped, Steering, stop_distance
+from hardware.robot import HeadingEstimate, LackOfProgress, RealRobot, RunStopped, SensorsBlind, Steering, stop_distance
 from hardware.ultrasonic import load_calibration
 from navigation.maze_map import TileType
 from navigation.robot_interface import MoveStatus
@@ -127,6 +127,58 @@ class FakeColor:
 
 def make_robot(body: Body) -> RealRobot:
     return RealRobot(FakeMotors(body), FakeUltrasonic(body), FakeColor(body))
+
+
+class BlindUltrasonic(FakeUltrasonic):
+    """Alle drei Sensoren ohne Echo (z.B. Versorgung weg)."""
+    def measure(self, side):
+        self.last[side] = None
+        return None
+
+
+class SensorsBlindTest(unittest.TestCase):
+    def make(self, ultrasonic=BlindUltrasonic):
+        body = Body(wall_cm=None)
+        return RealRobot(FakeMotors(body), ultrasonic(body), FakeColor(body))
+
+    def test_stops_after_repeated_blind_measurements(self):
+        robot = self.make()
+        robot.start_clock()
+        robot.read_walls()                  # einmal ganz ohne Echo: noch kein Abbruch, aber Warnung
+        self.assertTrue(robot.us_blind())
+        with self.assertRaises(SensorsBlind):
+            robot.read_walls()
+
+    def test_one_sensor_with_echo_is_fine(self):
+        robot = self.make(FakeUltrasonic)   # Seiten messen, vorne ohne Wand
+        robot.start_clock()
+        for _ in range(5):
+            robot.read_walls()
+        self.assertEqual(robot.blind_streak, 0)
+        self.assertFalse(robot.us_blind())
+
+    def test_streak_resets_with_echo(self):
+        robot = self.make()
+        robot.start_clock()
+        robot.read_walls()
+        robot.us = FakeUltrasonic(Body(wall_cm=None))
+        robot.read_walls()
+        robot.us = BlindUltrasonic(Body(wall_cm=None))
+        robot.read_walls()                  # wieder nur 1 in Folge
+        self.assertEqual(robot.blind_streak, 1)
+
+    def test_warning_when_idle(self):
+        robot = self.make()
+        robot.poll_sensors()                # im Stand (Lauf nicht gestartet)
+        self.assertTrue(robot.us_blind())
+
+    def test_competition_stops_with_message(self):
+        from main import competition
+        from navigation.explorer import Explorer
+        robot = self.make()
+        explorer = Explorer(robot)
+        self.assertFalse(competition(robot, explorer, lambda: "stop"))
+        self.assertIn("Ultraschall", explorer.mode)
 
 
 class ForwardTest(unittest.TestCase):

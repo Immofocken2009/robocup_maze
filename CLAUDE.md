@@ -284,6 +284,14 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Messpunkten). Einzelne Sensoren neu kalibrierbar, die anderen bleiben. `hardware/ultrasonic.py` korrigiert jede
   Messung. Ohne Kalibrierung (oder für einen fehlenden Sensor): Rohwerte und Warnung auf der Webseite.
   Die Kalibrierung steht im Kopf jeder Aufzeichnung. Die Simulation misst ohne Fehler und braucht keine.
+- **Ultraschall komplett ausgefallen erkennen** (entschieden 2026-11-10, Vorgabe Projektinhaber): Am 2026-11-10 lieferten
+  alle drei Sensoren gleichzeitig fast nur „kein Echo“ (Aufzeichnung 14:23: vorne 162 von 170 ohne Echo, die übrigen
+  Werte nur 2,6–8 cm = Störimpulse; derselbe Code lief nach dem Neustart normal) und der Roboter fuhr blind acht Kacheln
+  geradeaus, weil „kein Echo“ = „keine Wand“ gilt. Ursache vermutlich Wackelkontakt an der gemeinsamen Versorgung.
+  Jetzt: Melden alle drei Sensoren in einer Wandmessung kein Echo, zeigt die Webseite die Warnung `US_BLIND_WARN`
+  (im Stand sofort, im Lauf ab der ersten solchen Messung). Bei `US_BLIND_STOP` (2) solchen Messungen hintereinander
+  hält der Roboter an (`SensorsBlind`, Motoren stromlos, Modus „Angehalten: …“, Lauf beendet; K1 startet neu).
+  Ein Sensor mit Echo genügt, damit nichts passiert.
 - **Farbsensor einmessen** (entschieden 2026-11-04): `call.py --rgb` misst alle fünf Bodenfarben (Weiß, Schwarz, Blau,
   Silber, Rot; Blau/Silber/Rot überspringbar), einzelne Farben können neu eingemessen werden, danach Live-Erkennung.
 - **Farbsensor:** Kalibrierwerkzeug in `tools/` misst Weiß/Schwarz/Blau/Silber/Rot auf dem echten

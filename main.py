@@ -23,7 +23,7 @@ from hardware.buttons import Buttons
 from hardware.color_sensor import ColorSensor
 from hardware.fan import Fan
 from hardware.motors import Motors
-from hardware.robot import LackOfProgress, RealRobot, RunStopped, TimeUp
+from hardware.robot import LackOfProgress, RealRobot, RunStopped, SensorsBlind, TimeUp
 from hardware.run_log import Clock, Recorder
 from hardware.ultrasonic import Ultrasonic
 from navigation.explorer import Explorer
@@ -71,6 +71,11 @@ def competition(robot: RealRobot, explorer: Explorer, wait_lop, on_status=lambda
             break
         except TimeUp:
             explorer.mode = "Zeit abgelaufen"
+            break
+        except SensorsBlind:
+            robot.motors.float()
+            explorer.mode = "Angehalten: " + config.US_BLIND_WARN
+            log.error(config.US_BLIND_WARN)
             break
         except Exception:
             log.exception("Fehler im Lauf")
@@ -275,6 +280,8 @@ class RobotProgram:
                 msg["warnings"].append(r.color.warning)
             if r.us.warning:
                 msg["warnings"].append(r.us.warning)
+            if r.us_blind():
+                msg["warnings"].append(config.US_BLIND_WARN)
             if self.battery < config.BATTERY_LOW_V:
                 msg["warnings"].append(f"Akku schwach ({self.battery:.1f} V)")
         if e:

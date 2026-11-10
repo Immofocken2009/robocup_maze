@@ -41,6 +41,11 @@ class TimeUp(Exception):
     """Die 8 Minuten sind abgelaufen."""
 
 
+class SensorsBlind(Exception):
+    """Alle drei Ultraschallsensoren melden mehrmals hintereinander gar kein Echo: Hardwarefehler
+    (Versorgung, Kabel), der Roboter würde sonst blind weiterfahren und lauter offene Wände eintragen."""
+
+
 def stop_distance(front_cm: float | None, travelled: float) -> float | None:
     """Fahrstrecke (ab Start der Fahrt), bei der der Roboter mittig auf der nächsten Kachel steht,
     aus einer Messung vorne nach `travelled` cm. Die Wand darf mehrere Kacheln entfernt sein:
@@ -264,6 +269,7 @@ class RealRobot(RobotInterface):
         self.motion: dict | None = None     # {"forward_cm": x} oder {"turn_deg": x}, seit Aktionsbeginn
         self.walls: dict[str, bool] | None = None   # zuletzt erkannte Wände
         self.floor: TileType | None = None          # zuletzt erkannter Boden
+        self.blind_streak = 0       # Wandmessungen hintereinander, bei denen alle drei Sensoren kein Echo hatten
         self.encoders = (0.0, 0.0)
         self.corridor_cm = config.CORRIDOR_CM   # gemessene Gangbreite, bleibt über die Fahrten erhalten
 
@@ -280,6 +286,7 @@ class RealRobot(RobotInterface):
         self.motion = None
         self.walls = None
         self.floor = None
+        self.blind_streak = 0
         self.set_action("bereit")
 
     def interrupt(self, reason: str):
@@ -314,8 +321,18 @@ class RealRobot(RobotInterface):
         values = self.us.read_all(config.US_READINGS)
         self.walls = {side: v is not None and v < config.WALL_THRESHOLD_CM for side, v in values.items()}
         self.trace("wände", werte=values, wände=self.walls)
+        self.blind_streak = self.blind_streak + 1 if all(v is None for v in values.values()) else 0
         self.on_change()
+        if self.blind_streak >= config.US_BLIND_STOP:
+            self.motors.float()
+            self.trace("ultraschall_blind", streak=self.blind_streak)
+            raise SensorsBlind(config.US_BLIND_WARN)
         return self.walls
+
+    def us_blind(self) -> bool:
+        """Für die Anzeige: alle drei Sensoren ohne Echo (im Stand sofort, im Lauf ab der ersten Wandmessung)."""
+        none = all(v is None for v in self.us.last.values())
+        return none and (self.started_at is None or self.blind_streak > 0)
 
     def read_floor(self) -> TileType:
         self._begin("misst Boden")
