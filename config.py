@@ -144,7 +144,8 @@ HEADING_FIX_MAX_DEG = 15.0      # höchstens so weit drehen
 # --- Regeln (Regelwerk 2026) -------------------------------------------------
 BLUE_WAIT_S = 5.0           # auf blauer Kachel 5 s am Stück stehen (3.2.5)
 TIME_LIMIT_S = 8 * 60       # 8 Minuten pro Spiel inkl. Kalibrieren (5.3.1)
-CALIBRATION_TIME_S = 40.0   # so viel der 8 Minuten ist beim Start schon verbraucht
+CALIBRATION_TIME_S = 40.0   # so viel der 8 Minuten ist beim Start schon verbraucht (Kalibrieren), wenn K1 zweimal gedrückt wird
+START_DOUBLE_S = 1.0        # zweiter K1 höchstens so lange nach dem ersten = Start mit Kalibrierzeit (einmal K1 = ohne)
 EXIT_SIGNAL_S = 10.0        # am Start blinken für den Exit-Bonus (5.6.12)
 TIME_MARGIN_S = 20.0        # Sicherheitspuffer für den Heimweg
 

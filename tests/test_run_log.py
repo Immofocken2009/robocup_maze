@@ -25,7 +25,8 @@ from web.server import (NEEDED_PERMISSIONS, SETUP_COMMAND, Network, NetworkError
                         parse_networks, split_terse, wifi_security)
 
 
-def record(path: Path, lop_at_s: float | None = None, seed: int = 1, settings_file: Path | None = None) -> Explorer:
+def record(path: Path, lop_at_s: float | None = None, seed: int = 1, settings_file: Path | None = None,
+           calibrate: bool = True) -> Explorer:
     """Einen Lauf mit Rauschen und Schlupf aufzeichnen; lop_at_s: dann K3 drücken (Lack of Progress)."""
     world = SimWorld.load("sonderboeden")
     hw = SimHardware(world, noise=True, slip=True)
@@ -46,7 +47,8 @@ def record(path: Path, lop_at_s: float | None = None, seed: int = 1, settings_fi
     explorer = Explorer(robot, red_mode="zuletzt", trace=rec.calc,
                         on_update=lambda: rec.state({"action": robot.action, "detail": robot.detail}))
     rec.start_run(robot, "zuletzt", path)
-    stopped = main.competition(robot, explorer, lambda: rec.flow("lop_wait", "lop"))
+    calibrate = rec.flow("calibrate", calibrate)
+    stopped = main.competition(robot, explorer, lambda: rec.flow("lop_wait", "lop"), calibrate=calibrate)
     rec.stop(mode=explorer.mode, stopped=stopped)
     return explorer
 
@@ -93,6 +95,20 @@ class RunLogTest(unittest.TestCase):
             config.write_settings({}, settings)             # Datei danach geändert: Nachrechnen nimmt die Aufzeichnung
             same, report = replay_run(records)
             self.assertTrue(same, report)
+
+    def test_replay_without_calibration_time(self):
+        """Einmal K1 = ohne die 40 s Kalibrierzeit; die Entscheidung steht in der Aufzeichnung."""
+        record(self.path, calibrate=False)
+        records = read_run(self.path)[0]
+        self.assertEqual(next(r["r"] for r in records if r.get("src") == "calibrate"), False)
+        same, report = replay_run(records)
+        self.assertTrue(same, report)
+
+    def test_replay_of_old_recording_without_calibrate_entry(self):
+        record(self.path)
+        records = [r for r in read_run(self.path)[0] if r.get("src") != "calibrate"]
+        same, report = replay_run(records)
+        self.assertTrue(same, report)
 
     def test_replay_with_lack_of_progress(self):
         record(self.path, lop_at_s=90.0)

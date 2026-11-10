@@ -39,12 +39,14 @@ STATUS_TEXT = {
 }
 
 
-def competition(robot: RealRobot, explorer: Explorer, wait_lop, on_status=lambda status: None) -> bool:
+def competition(robot: RealRobot, explorer: Explorer, wait_lop, on_status=lambda status: None,
+                calibrate: bool = True) -> bool:
     """Ein Wettkampflauf bis zum Ende. True = mit K2 abgebrochen.
+    calibrate: die Kalibrierzeit (config.CALIBRATION_TIME_S) zählt von Anfang an von der Spielzeit ab.
     wait_lop(): nach Lack of Progress auf 'lop' (K3, weiter) oder 'stop' (K2) warten.
     Wird auch zum Nachrechnen einer Aufzeichnung benutzt (tools/replay_run.py)."""
     robot.reset()
-    robot.start_clock()
+    robot.start_clock(config.CALIBRATION_TIME_S if calibrate else 0.0)
     on_status("running")
     resume = stopped = False
     while True:
@@ -146,12 +148,27 @@ class RobotProgram:
                 self.robot.set_action("wartet auf K1")
                 self.publish(force=True)
                 self.wait_for("start")
-            if self._run():        # K2: zurück in den Zustand wie nach dem Booten
+                calibrate = self.double_press()
+            if self._run(calibrate):        # K2: zurück in den Zustand wie nach dem Booten
                 new_run = False
                 continue
             self.robot.set_action("steht")
             self.publish(force=True)
             new_run = self.wait_for("start", "stop") == "start"
+            if new_run:
+                calibrate = self.double_press()
+
+    def double_press(self) -> bool:
+        """Nach dem ersten K1: kommt innerhalb von START_DOUBLE_S ein zweites K1, zählen die 40 s Kalibrierzeit
+        mit (zweimal K1 = mit Kalibrieren, einmal = ohne). Der Start verzögert sich um das Zeitfenster."""
+        deadline = time.monotonic() + config.START_DOUBLE_S
+        while (left := deadline - time.monotonic()) > 0:
+            try:
+                if self.presses.get(timeout=left) == "start":
+                    return True
+            except queue.Empty:
+                pass
+        return False
 
     def _init_hardware(self) -> bool:
         self.status = "error"
@@ -174,15 +191,16 @@ class RobotProgram:
         log.info("Hardware bereit")
         return True
 
-    def _run(self) -> bool:
+    def _run(self, calibrate: bool) -> bool:
         """Ein Wettkampflauf mit Aufzeichnung. True = mit K2 abgebrochen."""
         robot = self.robot
         self.explorer = Explorer(robot, red_mode=self.red_mode, on_update=self._explorer_update,
                                  trace=self.rec.calc)
         self.rec.start_run(robot, self.red_mode)
+        calibrate = self.rec.flow("calibrate", calibrate)
         stopped = False
         try:
-            stopped = competition(robot, self.explorer, self._wait_lop, self._set_status)
+            stopped = competition(robot, self.explorer, self._wait_lop, self._set_status, calibrate)
         finally:
             self.status = "finished"
             self.rec.stop(mode=self.explorer.mode, stopped=stopped, visited=len(self.explorer.maze.visited))

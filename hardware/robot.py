@@ -265,6 +265,7 @@ class RealRobot(RobotInterface):
 
         self._interrupt: str | None = None
         self.started_at: float | None = None
+        self.calibration_s = config.CALIBRATION_TIME_S
         # für die Anzeige
         self.action = "bereit"
         self.detail = ""
@@ -277,7 +278,9 @@ class RealRobot(RobotInterface):
 
     # --- Steuerung durch main.py ------------------------------------------------
 
-    def start_clock(self):
+    def start_clock(self, calibration_s: float = config.CALIBRATION_TIME_S):
+        """Uhr starten; calibration_s: so viel der Spielzeit ist schon verbraucht (Kalibrieren)."""
+        self.calibration_s = calibration_s
         self.started_at = self.clock.monotonic()
 
     def reset(self):
@@ -315,8 +318,8 @@ class RealRobot(RobotInterface):
 
     def time(self) -> float:
         if self.started_at is None:
-            return config.CALIBRATION_TIME_S
-        return config.CALIBRATION_TIME_S + self.clock.monotonic() - self.started_at
+            return self.calibration_s
+        return self.calibration_s + self.clock.monotonic() - self.started_at
 
     def load_settings(self) -> dict:
         """Einstellungen der Webseite lesen (eigene Methode, damit die Aufzeichnung sie mitschreibt)."""

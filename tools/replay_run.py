@@ -206,7 +206,9 @@ def replay_run(records: list[dict], show_calc: bool = False) -> tuple[bool, str]
     explorer = Explorer(robot, red_mode=head["red_mode"], trace=replay.calc)
     counts = lambda: f"{replay.i} von {len(replay.inputs)} Hardware-Aufrufen, {replay.c} von {len(replay.calcs)} Rechenschritten"
     try:
-        stopped = main.competition(robot, explorer, lambda: replay.take("lop_wait"))
+        calibrate = replay.sparse("calibrate")      # fehlt in älteren Aufzeichnungen: damals immer mit Kalibrierzeit
+        stopped = main.competition(robot, explorer, lambda: replay.take("lop_wait"),
+                                   calibrate=True if calibrate is None else calibrate)
     except Divergence as d:
         if replay.end is None and d.exhausted:
             return True, (f"Die Aufzeichnung bricht bei t = {d.t:.2f} s ab (Strom weg oder Programm beendet).\n"

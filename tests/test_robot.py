@@ -172,6 +172,26 @@ class SensorsBlindTest(unittest.TestCase):
         robot.poll_sensors()                # im Stand (Lauf nicht gestartet)
         self.assertTrue(robot.us_blind())
 
+    def test_clock_with_and_without_calibration_time(self):
+        robot = self.make(FakeUltrasonic)
+        robot.start_clock()
+        self.assertAlmostEqual(robot.time(), config.CALIBRATION_TIME_S, delta=0.5)
+        robot.start_clock(0.0)
+        self.assertAlmostEqual(robot.time(), 0.0, delta=0.5)
+
+    def test_double_press_detection(self):
+        import queue
+        import threading
+        import main
+        program = main.RobotProgram.__new__(main.RobotProgram)
+        program.presses = queue.Queue()
+        with mock.patch.object(config, "START_DOUBLE_S", 0.3):
+            self.assertFalse(program.double_press())                 # einmal K1: nichts kommt nach
+            threading.Timer(0.1, program.presses.put, ["start"]).start()
+            self.assertTrue(program.double_press())                  # zweites K1 schnell danach
+            threading.Timer(0.1, program.presses.put, ["stop"]).start()
+            self.assertFalse(program.double_press())                 # anderer Taster zählt nicht
+
     def test_competition_stops_with_message(self):
         from main import competition
         from navigation.explorer import Explorer

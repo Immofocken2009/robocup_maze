@@ -310,6 +310,12 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - **Exit-Signal:** wird ignoriert (keine Blinkhardware), der Roboter bleibt am Start einfach stehen.
 - **Ablauf:**
   - Beim Booten startet `main.py` (systemd) und wartet auf **K1** (Start).
+  - **Kalibrierzeit nur bei Doppeldruck** (entschieden 2026-11-10, Vorgabe Projektinhaber): **einmal K1 = Start ohne die 40 s**
+    (Uhr startet bei 0:00), **zweimal K1 schnell hintereinander = mit 40 s** (Uhr startet bei 0:40, wie vorher immer).
+    Nach dem ersten K1 wartet er `START_DOUBLE_S` (1 s) auf ein zweites K1 und startet erst danach (Start verzögert sich
+    um diese Sekunde, Entscheidung Projektinhaber). Gilt auch für den Neustart nach „Fertig“. Die Entscheidung steht in der
+    Aufzeichnung (`flow` „calibrate“), alte Aufzeichnungen ohne den Eintrag rechnen mit 40 s. Die Simulation rechnet weiter
+    immer mit 40 s.
   - **K2** (Stopp): Lauf abbrechen, Motoren aus, zurück in den Zustand wie nach dem Booten
     (Karte leer, wartet auf K1). Das Programm selbst läuft weiter.
   - **K3** (Lack of Progress): Roboter hält an und wartet. Nach dem Umsetzen nochmal **K3** → weiter.
