@@ -184,6 +184,23 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - Tests mit **unittest** (Standardbibliothek).
 - Kachelweiser `SimRobot` (Tests): eine Aktion = eine Kachel bzw. eine 90°-Drehung, Ultraschall =
   Abstand von der Sensorposition (Robotermaße in `config.py`) bis zur nächsten Wand.
+- **Fahrphysik an die Wirklichkeit angepasst** (2026-11-10, Vorgabe Projektinhaber, nach den Aufzeichnungen 15:04, 15:06, 15:08;
+  Werte in `simulation/sim_hardware.py`, Messung jeweils im Kommentar). Alle Schlupf-Werte gelten nur mit „Kettenschlupf“ an:
+  - **Ausrollen** nach „stromlos“: `MOTOR_TAU_FLOAT_S` = 0,012 s (echt 2–4 Encodergrad, vorher 9 = Simulation übertrieb);
+    Hochlaufen `MOTOR_TAU_S` 0,05 s passt (gemessen ca. 0,055).
+  - **Ultraschall:** Rauschen beim Fahren 0,4 cm (gemessen 0,42), im Stand `US_NOISE_STILL_CM` 0,03 (gemessen 0,01–0,03),
+    Ausfälle `US_DROPOUT` 0,3 % (gemessen 0–0,7 %, vorher 3 %).
+  - **Weg:** `DRIVE_SLIP` 12 %: beim Fahren mit normalem Tempo sinkt der Abstand vorne nur um das 0,87-fache der Encoderstrecke
+    (in 4 Aufzeichnungen je 0,855–0,88). `MOTOR_DEG_PER_CM` wurde mit halbem Tempo eingemessen. **Echt wohl ca. 20,8 statt
+    18,29 Encodergrad/cm bei normalem Tempo** (Nachmessen, dann alle dps-Werte umrechnen, siehe Regel oben). Wirkt nur bei
+    Halt nach Encoder (ohne Wand in Reichweite), sonst gilt der Abstand vorne.
+  - **Drift:** `DRIFT_BIAS` 4,3 % (rechte Kette macht weniger Weg; 10° auf 98,5 cm bei gleichen Encodern). Die Lenkung hält in
+    den Aufzeichnungen im Mittel 6,4° je Kachel dagegen (Streuung 4,5), in der Simulation 4–6°.
+  - **Ecke streift beim Drehen:** dreht er auf der Stelle und eine Ecke drückt in die Wand, rutschen die Ketten durch
+    (Encoder zählen, er dreht nicht), `CORNER_SOFT_CM` 0,03; nur grob abgestimmt (siehe Kommentar), nicht gemessen.
+  - **Folge:** mit diesen Werten erkundet er in der Simulation nur 3 von 6 (Labyrinth „einfach“) bzw. 1 von 6 („sonderboeden“)
+    Läufen komplett und endet am Start; er verliert die Orientierung („Unerwartete Wand“, kein Weg zum Start). Ohne
+    `DRIFT_BIAS` klappt alles. `test_noise_and_slip` läuft deshalb ohne Drift. Siehe Offene Fragen.
 - Alle Browser sehen dieselbe Simulation (gemeinsamer Zustand auf dem Server).
 
 ### Echter Roboter (freigegeben 2026-11-03)
@@ -511,6 +528,12 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
   alles als Text: `--text`
 
 ## Offene Fragen an den Projektinhaber
+
+- **Erkundung bricht mit der echten Drift/Schlupf in der Simulation ein** (2026-11-10): nur 3 von 6 bzw. 1 von 6 Läufen komplett.
+  Ursachen suchen und beheben (Drift ausgleichen z.B. Faktor pro Kette, Orientierung nach Fehlfahrten wiederfinden,
+  Strecke neu einmessen: `MOTOR_DEG_PER_CM` bei normalem Tempo ca. 20,8?). Das Gyro würde die Drift beim Geradeausfahren auffangen.
+- **Simulation übernimmt die Einstellungen des Reiters „Einstellungen“ nicht** (nur `main.py` liest `data/settings.json`).
+  Soll die Simulation sie nutzen, damit man Lenkwerte dort ausprobieren kann?
 
 - Drift beim Geradeausfahren: ca. 10° nach rechts auf 98,5 cm, obwohl beide Encoder gleich liefen. Mechanik prüfen
   (Kettenspannung, etwas schleift)? Wiederholbar? Ausgleich (z.B. Faktor pro Kette) oder Seitenwände/Gyro?
