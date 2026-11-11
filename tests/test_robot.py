@@ -20,7 +20,7 @@ import config
 import hardware.motors
 from hardware.color_sensor import classify
 from hardware.motors import Motors
-from hardware.robot import HeadingEstimate, LackOfProgress, RealRobot, RunStopped, SensorsBlind, Steering, stop_distance
+from hardware.robot import HeadingEstimate, centering_plan, LackOfProgress, RealRobot, RunStopped, SensorsBlind, Steering, stop_distance
 from hardware.ultrasonic import load_calibration
 from navigation.maze_map import TileType
 from navigation.robot_interface import MoveStatus
@@ -763,3 +763,24 @@ class WallContactTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CenteringPlanTest(unittest.TestCase):
+    """Entscheidung vor der Drehung: vorne zurück ja/nein, seitlich ja/nein."""
+
+    def test_front_close_only(self):
+        back, side = centering_plan(4.0, 6.25, 6.25)
+        self.assertAlmostEqual(back, config.FRONT_CENTER_CM - 4.0)
+        self.assertEqual(side, 0.0)
+
+    def test_side_close_with_room_on_the_other_side(self):
+        back, side = centering_plan(12.0, 4.0, 9.0)             # links nah, rechts Platz: nach rechts, nur bis mittig
+        self.assertEqual(back, 0.0)
+        self.assertAlmostEqual(side, -2.5)
+        back, side = centering_plan(12.0, 9.0, 4.0)
+        self.assertAlmostEqual(side, 2.5)
+
+    def test_open_area_or_no_echo_does_nothing(self):
+        self.assertEqual(centering_plan(40.0, 35.0, None), (0.0, 0.0))
+        self.assertEqual(centering_plan(None, None, None), (0.0, 0.0))
+        self.assertEqual(centering_plan(12.0, 6.25, 6.25), (0.0, 0.0))     # mittig im Gang: nichts

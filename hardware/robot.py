@@ -295,6 +295,38 @@ class StallWatch:
         return now - self.since >= config.STALL_S
 
 
+def centering_plan(front: float | None, left: float | None, right: float | None, dead_end: bool = False) -> tuple[float, float]:
+    """Wie weit zentrieren vor einer Drehung: (zurück in cm, seitlicher Versatz in cm, > 0 = nach links schieben).
+    Sackgasse: immer auf Kachelmitte. Sonst nur, wenn eine Ecke anstoßen würde (vorne < TURN_FRONT_MIN_CM, Seite <
+    TURN_SIDE_MIN_CM), und dann nur so weit wie nötig. Kein Echo oder offene Fläche (nichts unter WALL_THRESHOLD_CM): (0, 0)."""
+    values = [v for v in (front, left, right) if v is not None]
+    if dead_end:
+        if None in (front, left, right):
+            return 0.0, 0.0
+        side = (left - right) / 2                           # > 0: zu nah an der rechten Wand, nach links
+        return max(0.0, config.FRONT_CENTER_CM - front), side if abs(side) > config.DEAD_END_SIDE_MIN_CM else 0.0
+    if not values or min(values) >= config.WALL_THRESHOLD_CM:
+        return 0.0, 0.0
+    back = 0.0
+    if front is not None and front < config.TURN_FRONT_MIN_CM:
+        back = min(config.FRONT_CENTER_CM - front, config.DEAD_END_MAX_BACK_CM)
+    side = 0.0
+    near_left = left is not None and left < config.TURN_SIDE_MIN_CM
+    near_right = right is not None and right < config.TURN_SIDE_MIN_CM
+    if near_left or near_right:
+        if near_left and near_right:
+            side = (left - right) / 2
+        elif near_left:
+            wall = right is not None and right < config.WALL_THRESHOLD_CM
+            side = left - ((left + right) / 2 if wall else config.SIDE_CENTER_CM)
+        else:
+            wall = left is not None and left < config.WALL_THRESHOLD_CM
+            side = ((left + right) / 2 if wall else config.SIDE_CENTER_CM) - right
+        if abs(side) <= config.DEAD_END_SIDE_MIN_CM:
+            side = 0.0
+    return back, side
+
+
 class RealRobot(RobotInterface):
     def __init__(self, motors: Motors, ultrasonic: Ultrasonic, color: ColorSensor,
                  on_change: Callable[[], None] | None = None, clock=time, settings_file=None):
@@ -316,6 +348,7 @@ class RealRobot(RobotInterface):
         self.motion: dict | None = None     # {"forward_cm": x} oder {"turn_deg": x}, seit Aktionsbeginn
         self.walls: dict[str, bool] | None = None   # zuletzt erkannte Wände
         self.floor: TileType | None = None          # zuletzt erkannter Boden
+        self._wall_values = None    # letzte Wandmessung, solange der Roboter seither nicht gefahren oder gedreht ist
         self.blind_streak = 0       # Wandmessungen hintereinander, bei denen alle drei Sensoren kein Echo hatten
         self.encoders = (0.0, 0.0)
         self.corridor_cm = config.CORRIDOR_CM   # gemessene Gangbreite, bleibt über die Fahrten erhalten
@@ -383,8 +416,9 @@ class RealRobot(RobotInterface):
         values = self.us.read_all(config.US_READINGS)
         self.walls = {side: v is not None and v < config.WALL_THRESHOLD_CM for side, v in values.items()}
         self.trace("wände", werte=values, wände=self.walls)
+        self._wall_values = values
         if all(self.walls.values()):
-            self._center_dead_end(values)
+            self._center_before_turn(values, dead_end=True)
         self.blind_streak = self.blind_streak + 1 if all(v is None for v in values.values()) else 0
         self.on_change()
         if self.blind_streak >= config.US_BLIND_STOP:
@@ -393,23 +427,28 @@ class RealRobot(RobotInterface):
             raise SensorsBlind(config.US_BLIND_WARN)
         return self.walls
 
-    def _center_dead_end(self, values: dict):
-        """Sackgasse: der Roboter muss hier auf der Stelle wenden, die Ecken schwenken auf 12,8 cm, die Wände stehen
-        nur 14 cm von der Kachelmitte. Darum vorher mittig setzen: vorne auf den Kachelmitten-Abstand zurück
-        (Auslaufen ohne Bremse schiebt ihn zu nah an die Wand) und seitlich mittig, indem er um einen kleinen
-        Winkel von der näheren Wand weg dreht, schräg zurücksetzt und wieder gerade dreht."""
+    def _center_before_turn(self, values: dict, dead_end: bool = False):
+        """Vor dem Drehen mittig setzen, damit die Ecken (Drehkreis 12,8 cm) nicht an die Wände stoßen, auch in der
+        Sackgasse: vorne auf den Kachelmitten-Abstand zurück (Auslaufen ohne Bremse schiebt ihn zu nah an die Wand)
+        und seitlich mittig, indem er um einen kleinen Winkel von der näheren Wand weg dreht, schräg zurücksetzt und
+        wieder gerade dreht. Die Entscheidung steht in `centering_plan`."""
         front, left, right = values["front"], values["left"], values["right"]
-        back = max(0.0, config.FRONT_CENTER_CM - front)         # so weit zurück, bis vorne Luft ist
-        side = (left - right) / 2                               # > 0: zu nah an der rechten Wand, nach links
+        back, side = centering_plan(front, left, right, dead_end)
         angle = dist = 0.0
-        if abs(side) > config.DEAD_END_SIDE_MIN_CM:
+        if side:
             angle = config.DEAD_END_ANGLE_DEG
             dist = min(abs(side) / math.sin(math.radians(angle)), config.DEAD_END_MAX_BACK_CM)
         extra = max(0.0, back - dist * math.cos(math.radians(angle)))   # reicht der schräge Weg nicht nach hinten
-        self.trace("sackgasse", vorne=front, seite=side, zurück=back, winkel=angle, strecke=dist, gerade=extra)
+        if dead_end:
+            self.trace("sackgasse", vorne=front, seite=side, zurück=back, winkel=angle, strecke=dist, gerade=extra)
+        elif dist or extra >= 0.5:
+            self.trace("zentriert_vor_drehung", vorne=front, links=left, rechts=right, seite=side, zurück=back,
+                       winkel=angle, strecke=dist, gerade=extra)
         if dist == 0.0 and extra < 0.5:
             return
-        self.set_action("setzt in der Sackgasse zurück", f"{max(dist, extra):.0f} cm")
+        self.set_action("setzt in der Sackgasse zurück" if dead_end else "Zentriert vor Drehung",
+                        f"{max(dist, extra):.0f} cm")
+        self._wall_values = None
         if angle:
             turn = angle if side > 0 else -angle                # nach links schieben = erst nach rechts drehen
             self._rotate(turn)
@@ -417,6 +456,8 @@ class RealRobot(RobotInterface):
             self._rotate(-turn)
         if extra >= 0.5:
             self.drive_cm(-extra)
+        elif not dead_end and (forward := dist * math.cos(math.radians(angle)) - back) >= 0.5:
+            self.drive_cm(forward)          # nur seitlich nötig: wieder vor, sonst steht er nach dem Drehen versetzt
 
     def us_blind(self) -> bool:
         """Für die Anzeige: alle drei Sensoren ohne Echo (im Stand sofort, im Lauf ab der ersten Wandmessung)."""
@@ -428,6 +469,7 @@ class RealRobot(RobotInterface):
         return self._measure_floor()
 
     def forward(self, avoid: set[TileType]) -> MoveResult:
+        self._wall_values = None
         self.apply_settings()
         self._begin("prüft vorne")
         front = self.us.median("front")
@@ -641,10 +683,17 @@ class RealRobot(RobotInterface):
     def _turn(self, direction: int):
         """90° drehen, direction +1 = rechts, -1 = links."""
         self._begin("dreht rechts" if direction > 0 else "dreht links")
+        values = self._wall_values              # frisch nur direkt nach read_walls, sonst (z.B. 2. Drehung) neu messen
+        if values is None:
+            values = self.us.read_all(config.US_READINGS)
+        self._wall_values = None
+        self._center_before_turn(values)
+        self.set_action("dreht rechts" if direction > 0 else "dreht links")
         self._rotate(direction * 90)
 
     def _rotate(self, deg: float):
         """Auf der Stelle über die Encoder drehen, positiv = rechts."""
+        self._wall_values = None
         direction = 1 if deg > 0 else -1
         target = abs(deg) / 90 * config.MOTOR_DEG_PER_90
         l0, r0 = self.motors.positions()
@@ -668,6 +717,7 @@ class RealRobot(RobotInterface):
 
     def drive_cm(self, cm: float):
         """Gerade nach Encoder fahren (negativ = rückwärts), beide Ketten im Gleichlauf."""
+        self._wall_values = None
         direction = 1 if cm >= 0 else -1
         l0, r0 = self.motors.positions()
         stall = StallWatch(self.clock)

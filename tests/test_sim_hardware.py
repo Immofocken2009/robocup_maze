@@ -219,7 +219,7 @@ class DeadEndTest(unittest.TestCase):
             robot.turn_left()
             self.assertAlmostEqual(hw.body.heading % 360, 180.0, delta=3.0)
             hw, robot = self.setup_dead_end(offset, front)
-            with mock.patch.object(type(robot), "_center_dead_end", lambda self, values: None):
+            with mock.patch.object(type(robot), "_center_before_turn", lambda self, values, dead_end=False: None):
                 robot.read_walls()
                 robot.turn_left()
                 robot.turn_left()
@@ -239,3 +239,43 @@ class DeadEndTest(unittest.TestCase):
         y = hw.body.y
         robot.read_walls()
         self.assertEqual(hw.body.y, y)
+
+
+class TurnCenteringTest(unittest.TestCase):
+    """Vor jeder 90°-Drehung zentrieren, wenn eine Ecke anstoßen würde (nicht nur in der Sackgasse)."""
+
+    def setup(self, tiles, width, x_offset, front_cm):
+        world = SimWorld.from_dict({"width": width, "height": 2, "start": [0, 1], "tiles": tiles})
+        hw = SimHardware(world)
+        robot = SimDrivingRobot(hw)
+        robot.start_clock()
+        hw.body.x = TILE / 2 + x_offset
+        hw.body.y = 2 * TILE - 1 - (front_cm + config.ROBOT_LENGTH_CM / 2)
+        return hw, robot
+
+    def test_two_walls_off_centre_and_close_in_front(self):
+        for offset in (2.7, -2.7):
+            tiles = [{"x": 0, "y": 0, "walls": "EW", "floor": "normal"}, {"x": 0, "y": 1, "walls": "EWN", "floor": "normal"}]
+            hw, robot = self.setup(tiles, 1, offset, 4.0)
+            robot.turn_left()                                   # ohne read_walls: misst selbst
+            self.assertAlmostEqual(hw.body.heading % 360, 270.0, delta=4.0)
+
+    def test_one_side_wall_only(self):
+        tiles = [{"x": x, "y": y, "walls": "WN" if (x, y) == (0, 1) else "", "floor": "normal"}
+                 for x in range(2) for y in range(2)]
+        hw, robot = self.setup(tiles, 2, -2.7, 4.0)             # Ecke links: Wand links 2,3 cm von der Mitte weg gerückt
+        robot.turn_left()
+        self.assertAlmostEqual(hw.body.heading % 360, 270.0, delta=4.0)
+
+    def test_open_area_does_not_centre(self):
+        hw = SimHardware(SimWorld.from_dict({"width": 3, "height": 3, "start": [1, 1],
+                                             "tiles": [{"x": x, "y": y, "walls": "", "floor": "normal"}
+                                                       for x in range(3) for y in range(3)]}))
+        robot = SimDrivingRobot(hw)
+        robot.start_clock()
+        calls = []
+        original = hw.motors.set_dps
+        hw.motors.set_dps = lambda l, r: (calls.append((l, r)), original(l, r))[1]
+        robot.turn_left()
+        self.assertTrue(calls)
+        self.assertTrue(all(l == -r for l, r in calls))         # nur Drehen auf der Stelle, kein Zurücksetzen

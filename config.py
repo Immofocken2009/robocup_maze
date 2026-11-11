@@ -159,6 +159,11 @@ HEADING_MIN_SPAN_CM = 10.0      # über so viele cm Fahrt verteilt
 DEAD_END_SIDE_MIN_CM = 1.0      # seitlicher Versatz zur Mitte, ab dem er schräg zurücksetzt
 DEAD_END_ANGLE_DEG = 8.0        # so weit schräg (größer: die vordere Ecke stößt beim Eindrehen an die nähere Wand)
 DEAD_END_MAX_BACK_CM = 12.0     # so weit höchstens schräg zurück
+# Vor jeder 90°-Drehung zentrieren, wenn eine Ecke anstoßen würde (Läufe 2026-11-11: vor 15 von 22 Drehungen hatte eine
+# Ecke <= 0,3 cm Luft). Die Ecken schwenken auf 12,77 cm: frei ist vorne f - 4,52 cm, seitlich s - 5,02 cm
+# (f/s = gemessener Abstand des Sensors). Dazu je 0,5 cm Reserve.
+TURN_FRONT_MIN_CM = 5.0         # vorne näher: gerade zurück bis FRONT_CENTER_CM (höchstens DEAD_END_MAX_BACK_CM)
+TURN_SIDE_MIN_CM = 5.5          # seitlich näher: schräg zurück wie in der Sackgasse, bis mittig
 HEADING_FIX_MIN_DEG = 1.0       # kleinerer Schrägstand: nicht drehen
 HEADING_FIX_MAX_DEG = 15.0      # höchstens so weit drehen
 

@@ -331,7 +331,7 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Aufzeichnungen 15:06 und 15:08 zeigen: die Encoder liefen beim Wenden normal durch (kein Stillstand erkannt), der Roboter stand
   aber mit nur ca. 4 cm Abstand vorne (Soll 5,75 cm, Auslaufen ohne Bremse) und bis 2,7 cm außermittig. Die Ecken schwenken
   auf 12,8 cm, die Wände stehen 14 cm von der Kachelmitte: nur 1,2 cm Luft. Jetzt (`RealRobot._center_dead_end`, aufgerufen
-  in `read_walls`, wenn alle drei Wände da sind): auf den Kachelmitten-Abstand vorne zurück und seitlich mittig, indem er um
+  in `read_walls`, wenn alle drei Wände da sind; seit 2026-11-11 dieselbe Hilfsfunktion `_center_before_turn` wie die Zentrierung vor jeder Drehung, siehe dort): auf den Kachelmitten-Abstand vorne zurück und seitlich mittig, indem er um
   `DEAD_END_ANGLE_DEG` (8°) von der näheren Wand weg dreht, schräg bis höchstens `DEAD_END_MAX_BACK_CM` (12 cm) zurücksetzt und
   wieder gerade dreht; ab `DEAD_END_SIDE_MIN_CM` (1 cm) Versatz. Größerer Winkel geht nicht: beim Eindrehen schwenkt die
   vordere Ecke zur näheren Wand (ab ca. 12° stößt sie an). **Bekannte Grenzen:** der Roboter steht danach bis ca. 11 cm hinter
@@ -349,6 +349,16 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   die Strecke läuft weiter (`base`), der Haltepunkt nach Abstand vorne bleibt. Ereignis: Aktion „Schleift links/rechts“ und Rechenwert
   `schleift` in der Aufzeichnung. Höchstens `CONTACT_MAX_TRIES` (2) Versuche je Fahrt, danach wie „Ketten blockiert“ (zurück,
   als Wand melden). Nicht auf dem echten Roboter geprüft; in der Simulation selten ausgelöst (Sensor misst dort kaum unter 2,5 cm).
+- **Vor der Drehung zentrieren** (entschieden 2026-11-11, Vorgabe Projektinhaber nach Auswertung der Läufe 15:42–15:46): Vor 15 von 22
+  90°-Drehungen hatte eine Ecke höchstens 0,3 cm Luft, danach hatte die nächste Fahrt in 7 von 15 Fällen Wandkontakt. Jetzt prüft
+  `RealRobot._turn` vor jeder 90°-Drehung (`_center_before_turn`, Entscheidung in `centering_plan`; Messwerte aus `read_walls`, sonst, z.B.
+  bei der 2. Drehung eines Wendens, frisch gemessen): vorne < `TURN_FRONT_MIN_CM` (5,0 = 4,52 + 0,5 Reserve) → gerade zurück auf
+  `FRONT_CENTER_CM` (höchstens `DEAD_END_MAX_BACK_CM`); eine Seite < `TURN_SIDE_MIN_CM` (5,5 = 5,02 + 0,5) → wie in der Sackgasse schräg
+  (`DEAD_END_ANGLE_DEG`) von der Wand weg, nur bis mittig (B/2 bzw. `SIDE_CENTER_CM`, wenn die Gegenseite keine Wand hat). Beide: erst vorne,
+  dann seitlich. Nichts, wenn keine Wand unter 20 cm oder kein Echo. **Wichtig:** reicht nur seitlich, fährt er danach den schrägen
+  Rückweg wieder vor (sonst steht er bis 11 cm zu weit hinten und nach dem Drehen versetzt: in der Simulation 0/12 Läufe fertig statt 12/12).
+  Aufzeichnung: Trace `zentriert_vor_drehung`, keine neuen Hardware-Eingänge. Simulation (Drift, Rauschen, Schlupf, Kettenfaktor, 12 Seeds):
+  „einfach“ 12/12 (vorher 8), „sonderboeden“ 12/12 (vorher 9), Zentrieren 2–7 mal je Lauf, im Mittel ca. 7 s Sim-Zeit je Lauf. Nicht auf dem echten Roboter geprüft.
 - **Reiter „Einstellungen“ (Lenkung)** (entschieden 2026-11-10, Vorgabe Projektinhaber): fünfter Reiter, stellt die Stärke der
   Lenkung beim Geradeausfahren ein: `STEER_KP` (Lenkstärke), `STEER_KD` (Dämpfung), `STEER_MAX_DPS` (größte Lenkung),
   `STEER_SLEW_DPS_PER_CM` (Lenkänderung); Liste, Bereiche und Hilfetexte in `config.STEER_SETTINGS`. Regler + Zahlenfeld,
