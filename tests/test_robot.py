@@ -641,5 +641,37 @@ class SteeringTest(unittest.TestCase):
         steps = [b - a for a, b in zip([0.0] + corr, corr)]
         self.assertLessEqual(max(steps), config.STEER_SLEW_DPS_PER_CM * 2 + 1e-9)
 
+    def test_no_d_with_far_opposite_wall(self):
+        """Nur eine Wand nah, die Gegenwand fern (über Raster): D = 0, auch wenn sich die Abweichung ändert."""
+        for near, far in (("left", "right"), ("right", "left")):
+            s = Steering()
+            sides = {near: [C + .5 * i for i in range(8)], far: [FAR] * 8}
+            drive(s, sides["left"], sides["right"])
+            self.assertEqual(s.mode, near)
+            self.assertEqual(s.slope, 0.0)
+            self.assertEqual(s.values()["d"], 0.0)
+
+    def test_d_in_corridor(self):
+        """Zwei nahe Wände (B <= CORRIDOR_MAX_CM): D wie bisher."""
+        s = Steering()
+        drive(s, [C + .5 * i for i in range(8)], [C - .5 * i for i in range(8)])
+        self.assertEqual(s.mode, "both")
+        self.assertLessEqual(s.width, config.CORRIDOR_MAX_CM)
+        self.assertNotEqual(s.slope, 0.0)
+
+    def test_grid_offset_limited(self):
+        """Ferne Wand mit 7 cm Rasterabweichung: auf STEER_GRID_MAX_CM begrenzt, nahe Wand nicht."""
+        s = Steering()
+        drive(s, [FAR + 7] * 4, [None] * 4)
+        self.assertEqual(s.mode, "left")
+        self.assertEqual(s.offset, config.STEER_GRID_MAX_CM)
+        s = Steering()
+        drive(s, [None] * 4, [FAR + 7] * 4)
+        self.assertEqual(s.offset, -config.STEER_GRID_MAX_CM)
+        s = Steering()
+        drive(s, [C + 7] * 4, [None] * 4)      # nahe Wand: unbegrenzt
+        self.assertEqual(s.offset, 7)
+
+
 if __name__ == "__main__":
     unittest.main()

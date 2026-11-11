@@ -261,6 +261,11 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
     **D-Anteil nur, wenn beide Seiten zählen.** Zählt nur eine Wand, lenkt er nur mit P
     (sonst hält er das langsame Hochkriechen einer wegbrechenden, v.a. weit entfernten Wand für
     Schrägstand und schert aus; Nachteil: an einer einzelnen Wand pendelt er eher).
+  - **D nur im Gang, Raster begrenzt** (2026-11-11, Vorgabe Projektinhaber nach Auswertung der Läufe 15:42–15:46): D-Anteil nur im
+    Modus `both` und nur bei B ≤ `CORRIDOR_MAX_CM` (zwei nahe Wände); sonst D = 0 und das D-Fenster beginnt neu. Die Abweichung aus dem
+    Kachelraster (Wand weiter als ca. 20 cm) ist auf ±`STEER_GRID_MAX_CM` (2 cm) begrenzt, nahe Wände nicht. Grund: eine ferne Gegenwand
+    galt als „vertraut“, D lief bis 80 dps und gab Stöße beim Wandwechsel; das Raster lenkte mit bis zu 7 cm Abweichung (Extremfall:
+    25° Drehung in einer Fahrt, Ankunft mit 2,6 cm vorne).
 - **Kachelende nach Abstand:** Ist vorne eine Wand in Reichweite (auch mehrere Kacheln entfernt),
   wird angehalten, wenn der Abstand vorne zur Kachelmitte passt (zwischen zwei Messungen mit Encoder
   weitergerechnet). Ohne Wand in Reichweite: nach Encoder-Strecke. Encoder begrenzt Ausreißer.

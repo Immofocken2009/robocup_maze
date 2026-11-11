@@ -137,6 +137,9 @@ def write_settings(values: dict[str, float], path: Path = SETTINGS_FILE):
 STEER_WIDTH_JUMP_CM = 1.0       # Breiten-Wächter: links + rechts weicht um mehr von B ab -> Seite ignorieren
                                 # (Fehlalarm ist harmlos: dann kurz nur an einer Wand)
 STEER_STEADY_CM = 1.5           # zurückkehrende Wand: 2 Messungen hintereinander mit höchstens so viel Unterschied
+STEER_GRID_MAX_CM = 2.0         # Lenken nach dem Kachelraster (Wand weiter als ca. 20 cm): Abweichung höchstens so viel.
+                                # Grund: ferne Wände messen ungenau (Schallkegel, Wandkanten); Läufe 2026-11-11: bis 7 cm
+                                # Abweichung, im Extremfall 25° Drehung während einer Fahrt
 STEER_SIDE_MAX_CM = 55.0        # Seitenwand weiter weg: zum Lenken zu ungenau
 CORRIDOR_CM = 2 * SIDE_CENTER_CM                    # Startwert Gangbreite B = links + rechts (wird gemessen)
 CORRIDOR_MAX_CM = CORRIDOR_CM + TILE_SIZE_CM / 2    # links + rechts größer = breiter Raum, nähere Wand zählt

@@ -140,9 +140,9 @@ class Steering:
         if left is not None and right is not None and left + right <= config.CORRIDOR_MAX_CM:
             return "both", (left - right) / 2           # Gang: links und rechts gleich
         if left is not None and (right is None or left <= right):
-            return "left", left - _grid(left, half)     # sonst die nähere bzw. einzige Wand
+            return "left", _grid_offset(left, half)     # sonst die nähere bzw. einzige Wand
         if right is not None:
-            return "right", _grid(right, half) - right
+            return "right", -_grid_offset(right, half)
         return "encoder", 0.0
 
     def _control(self, travelled: float, enc: tuple[float, float], new_sample: bool) -> float:
@@ -165,8 +165,9 @@ class Steering:
             t0, o0 = self.samples[0]
             if travelled - t0 >= config.STEER_D_WINDOW_CM / 2:
                 slope = (offset - o0) / (travelled - t0)   # positiv = driftet nach rechts
-            if not (self.trusted["left"] and self.trusted["right"]):
-                slope = 0.0                                 # nur eine Wand: nur P
+            if mode != "both" or self.width > config.CORRIDOR_MAX_CM:
+                slope = 0.0                                 # kein echter Gang (zwei nahe Wände): nur P
+                self.samples.clear()                        # D-Fenster beginnt neu
             raw = config.STEER_KP * offset + config.STEER_KD * slope
             self.slope = slope
         self.raw = raw
@@ -228,6 +229,15 @@ class HeadingEstimate:
         ms, my = sum(s) / len(s), sum(y) / len(y)
         slope = sum((a - ms) * (b - my) for a, b in zip(s, y)) / sum((a - ms) ** 2 for a in s)
         return math.degrees(math.asin(_clamp(slope, 1.0)) + self.angle)
+
+
+def _grid_offset(cm: float, half: float) -> float:
+    """Abstand zur Wand minus Sollabstand. Bei einer fernen Wand (Rasterabstand, weiter als eine halbe
+    Kachel hinter der eigenen) auf ±STEER_GRID_MAX_CM begrenzt: der Schallkegel/Wandrand täuscht dort leicht."""
+    off = cm - _grid(cm, half)
+    if cm > half + config.TILE_SIZE_CM / 2:
+        off = _clamp(off, config.STEER_GRID_MAX_CM)
+    return off
 
 
 def _grid(cm: float, half: float) -> float:
