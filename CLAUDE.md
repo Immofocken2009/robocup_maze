@@ -449,6 +449,36 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
     (`motion.forward_cm` negativ, Aktionstext „fährt rückwärts“) und `tools/replay_run.py` brauchen nichts Neues (keine neuen Hardware-Eingänge).
   - **Nicht auf dem echten Roboter geprüft.** Bekannte Grenze: mit mehr als ca. 6° Schrägstand und über 2 cm Versatz zur nahen Wand
     schwenkt die hintere Ecke an die Wand (ohne Sensor hinten nicht sichtbar), er kann sich dann verkeilen (Stillstand → BLOCKED).
+- **Haltepunkt vorne per Median** (entschieden 2026-11-11, Vorgabe Projektinhaber): In `forward`/`backward` setzte jede einzelne Messung vorne den Haltepunkt
+  neu; ein Störimpuls (z.B. 3 cm bei 25 cm Fahrt, am 2026-11-10 gab es Impulse mit 2,6-8 cm reihenweise) ergab Halt bei 22 cm, die Fahrt endete sofort
+  5 cm zu kurz. Jetzt ist `stop_at` = Median (`stop_median`) der Rasterwerte der letzten `FRONT_STOP_MEDIAN` (3) Vorne-Messungen mit Wand in Reichweite
+  (bei 1 oder 2 Werten der Median dieser; Ergänzung von Claude: der Rasterwert aus der Messung vor der Fahrt ist der erste Wert). Die Liste wird nach jedem
+  Zurücksetzen (Kontakt/Rutschen) geleert. Trace „vorne“ hat zusätzlich `median`. `_front_slips` bekommt weiter jede Messung. Test `StopMedianTest`.
+- **Nach Lack of Progress alte Werte löschen** (entschieden 2026-11-11): `RealRobot.relocated()` setzt `_wall_values`, `rear_free_cm`, `front_free_cm` und
+  `_front_fresh` auf None (`blind_streak` bleibt); `main.competition` ruft es nach `robot.clear_interrupt()` im LoP-Zweig auf (`tools/replay_run.py`
+  nutzt dieselbe Funktion). Grund: der Roboter wird von Hand umgesetzt, Zentrieren vor der Drehung nutzte sonst Messwerte der alten Kachel. Test `RelocatedTest`.
+- **Nachsetzen am Kachelende** (entschieden 2026-11-11): Die Seitensensoren sitzen 7,25 cm vor der Drehmitte, die Halte-Toleranz erlaubt bis 8 cm Überschuss,
+  dann messen sie schon die Nachbarkachel. Nach dem Anhalten und Geradedrehen misst `_settle` (nur wenn die letzte Vorne-Messung der Fahrt eine Wand in
+  Reichweite hatte, vorwärts und rückwärts) den Abstand vorne; Soll = `FRONT_CENTER_CM` + n · `TILE_SIZE_CM` (`arrival_target`, n >= 0); liegt die Abweichung
+  zwischen `ARRIVE_FIX_MIN_CM` (3,0) und `ARRIVE_FIX_MAX_CM` (10,0), fährt er `drive_cm(delta)` (`arrival_fix`) und misst nochmal. Trace `nachgesetzt` (vorne, soll,
+  strecke, danach), Aktion „Setzt nach“. Abweichung von der Vorgabe: gemessen wird mit `median_fast` statt `median` (spart eine Messung). Der Wert bleibt in
+  `_front_fresh`. Tests `ArrivalFixTest`.
+- **Stillstandszeit je Kachel sparen** (entschieden 2026-11-11): **(a)** `_front_fresh` (Abstand vorne vom Kachelende, ungültig sobald sich der Roboter bewegt:
+  `_rotate`, `drive_cm`, Beginn von `forward`/`backward`, `reset`, `relocated`) und `_wall_values` (von `read_walls`) werden am Beginn von `forward`/`backward`
+  (`_start_values`) statt einer neuen Messung benutzt: vorne aus den Wandwerten bzw. dem frischen Wert, die erste Seitenmessung der Lenkung aus den Wandwerten.
+  Trace „vorwärts“/„rückwärts“ hat `vorne_quelle` („wände“/„frisch“/„gemessen“). **(b)** `Ultrasonic.median_fast(side, n)` (auch in `SimUltrasonic` und
+  `ReplayUltrasonic`): nach 2 Messungen fertig, wenn beide ein Echo haben und höchstens `STEER_STEADY_CM` auseinanderliegen (Mittel), sonst wie `median`;
+  `read_all(n)` nutzt es; `read_walls` misst bei vorhandenem `_front_fresh` nur die Seiten. Nur bestehende Hardware-Eingänge (`measure`), Nachrechnen bleibt 1:1.
+  Test `StillTimeTest`, `MedianFastTest`. Sim-Zeit je Lauf: einfach 109 -> 100 s, sonderboeden 232 -> 217 s, offener_raum 116 -> 104 s.
+- **D-Anteil per Ausgleichsgerade** (entschieden 2026-11-11): In `Steering._control` ist `slope` jetzt die Steigung der Ausgleichsgeraden (`fit_slope`, kleinste Quadrate)
+  über alle Proben im D-Fenster, sobald mindestens 3 Proben da sind und die Spanne >= `STEER_D_WINDOW_CM` / 2 ist, sonst 0 (vorher Differenz erste/letzte Probe,
+  bei 0,4 cm Rauschen über 2-4 cm Lenkrauschen bis ca. 35 dps). Fenster, Modusregeln, Slew unverändert. Test `FitSlopeTest`. In der Simulation keine messbare Änderung
+  (Läufe und Zeit gleich).
+- **Simulation dieser fünf Punkte** (Drift, Rauschen, Schlupf, Kettenfaktor, 12 Seeds, vorher -> nachher): einfach 12/12 -> 12/12, sonderboeden 12/12 -> 12/12,
+  offener_raum 12/12 -> 12/12, **gross 9/12 -> 4/12**; Nachsetzungen je Lauf: einfach 0,0, sonderboeden 0,1, offener_raum 0,0, gross 1,2 (von ca. 61-71 Fahrten).
+  Mit 60 Seeds gross: 36/60 (vorher) -> 30/60, mit 120 Seeds ca. 61 % -> 47 %; Einzeln abgeschaltet (60 Seeds): ohne Median 32, ohne Nachsetzen 32, ohne beide 33,
+  ohne Ausgleichsgerade 30, ohne `median_fast` 27, ohne Wiederverwenden 29: keine einzelne Ursache erkennbar, im Rauschen (Streuung ca. ±4); gross ist ein chaotisches
+  Labyrinth (andere Messfolge = anderer Zufall). Nicht auf dem echten Roboter geprüft.
 - **Reiter „Einstellungen“ (Lenkung)** (entschieden 2026-11-10, Vorgabe Projektinhaber): fünfter Reiter, stellt die Stärke der
   Lenkung beim Geradeausfahren ein: `STEER_KP` (Lenkstärke), `STEER_KD` (Dämpfung), `STEER_MAX_DPS` (größte Lenkung),
   `STEER_SLEW_DPS_PER_CM` (Lenkänderung); Liste, Bereiche und Hilfetexte in `config.STEER_SETTINGS`. Regler + Zahlenfeld,
