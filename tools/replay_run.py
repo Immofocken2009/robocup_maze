@@ -127,6 +127,7 @@ class ReplayMotors:
 
 class ReplayUltrasonic:
     median = Ultrasonic.median          # gleiche Auswertung wie beim echten Sensor
+    median_fast = Ultrasonic.median_fast
     read_all = Ultrasonic.read_all
 
     def __init__(self, replay: Replay):

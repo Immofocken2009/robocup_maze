@@ -18,12 +18,14 @@ from unittest import mock
 import call
 import config
 import hardware.motors
-from hardware.color_sensor import classify
+from hardware.color_sensor import STATS_KEY, build_calibration, classify, features, load_calibration as load_color_calibration
 from hardware.motors import Motors
-from hardware.robot import HeadingEstimate, centering_plan, LackOfProgress, RealRobot, RunStopped, SensorsBlind, Steering, stop_distance
-from hardware.ultrasonic import load_calibration
+from hardware.robot import (HeadingEstimate, centering_plan, LackOfProgress, RealRobot, RunStopped, SensorsBlind, Steering,
+                            arrival_fix, arrival_target, fit_slope, stop_distance, stop_median)
+from hardware.ultrasonic import Ultrasonic, load_calibration
 from navigation.maze_map import TileType
 from navigation.robot_interface import MoveStatus
+import tools.calibrate_color as calibrate_color
 from tools.calibrate_color import saved_colors
 from tools.calibrate_ultrasonic import fit_line
 from tools.test_motors import angle_from_offset, new_trim
@@ -101,6 +103,9 @@ class FakeUltrasonic:
         return cm
 
     def median(self, side, n=3):
+        return self.measure(side)
+
+    def median_fast(self, side, n=3):
         return self.measure(side)
 
     def read_all(self, n=1):
@@ -518,6 +523,139 @@ class ColorCalibrationTest(unittest.TestCase):
             self.assertIsNone(saved_colors(path))
 
 
+RAW_COLORS = {"white": (900, 850, 700, 2500), "black": (60, 60, 50, 170), "blue": (150, 300, 600, 1000),
+              "silver": (1300, 1250, 1050, 3700), "red": (900, 250, 200, 1300)}
+
+
+def color_stats(spread: float = 0.01) -> dict:
+    """Merkmalsstatistik der RAW_COLORS mit gleicher kleiner Streuung für alle Merkmale."""
+    white_c = RAW_COLORS["white"][3]
+    return {n: {"mean": list(features(r, white_c)), "std": [spread] * 4} for n, r in RAW_COLORS.items()}
+
+
+class ColorClassifyTest(unittest.TestCase):
+    def setUp(self):
+        self.cal = build_calibration(RAW_COLORS, color_stats())
+
+    def test_with_stats(self):
+        self.assertIn(STATS_KEY, self.cal)
+        self.assertEqual(classify((880, 830, 690, 2450), self.cal), "white")
+        self.assertEqual(classify((50, 55, 45, 150), self.cal), "black")
+        self.assertEqual(classify((140, 280, 620, 1050), self.cal), "blue")
+        self.assertEqual(classify((950, 260, 190, 1350), self.cal), "red")
+
+    def test_rejects_far_value(self):
+        # grün: Farbanteile passen zu keiner Farbe
+        self.assertIsNone(classify((100, 1000, 100, 1500), self.cal))
+
+    def test_brighter_white_stays_white(self):
+        # 10 % heller als Weiß bleibt Weiß (Helligkeit: Mindeststreuung 0,05, Silber liegt bei 1,48 relativ)
+        self.assertEqual(classify((990, 935, 770, 2750), self.cal), "white")
+        self.assertEqual(classify((1300, 1250, 1050, 3700), self.cal), "silver")
+        # sehr viel heller als alles Kalibrierte: unsicher
+        self.assertIsNone(classify((2600, 2450, 2000, 7400), self.cal))
+
+    def test_wide_spread_of_white_covers_brighter(self):
+        stats = color_stats()
+        stats["white"]["std"] = [0.01, 0.01, 0.01, 0.15]
+        cal = build_calibration(RAW_COLORS, stats)
+        self.assertEqual(classify((1100, 1040, 860, 3050), cal), "white")
+
+    def test_without_stats_old_method(self):
+        cal = build_calibration(RAW_COLORS, None)
+        self.assertNotIn(STATS_KEY, cal)
+        self.assertEqual(classify((880, 830, 690, 2450), cal), "white")
+        self.assertEqual(classify((100, 1000, 100, 1500), cal) is not None, True)   # nie None
+        partial = color_stats()
+        del partial["red"]
+        self.assertNotIn(STATS_KEY, build_calibration(RAW_COLORS, partial))
+
+    def test_min_std_floor(self):
+        # Streuung 0 gemessen: Mindeststreuung verhindert unendlichen Abstand
+        cal = build_calibration(RAW_COLORS, color_stats(0.0))
+        self.assertEqual(classify((880, 830, 690, 2450), cal), "white")
+
+    def test_load_calibration_file(self):
+        settings = {"integration_ms": config.COLOR_INTEGRATION_MS, "gain": config.COLOR_GAIN}
+        colors = {n: list(v) for n, v in RAW_COLORS.items()}
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "colors.json"
+            path.write_text(json.dumps({"settings": settings, "colors": colors}))
+            cal, warning = load_color_calibration(path)
+            self.assertIn("ohne Streuung", warning)
+            self.assertNotIn(STATS_KEY, cal)
+            path.write_text(json.dumps({"settings": settings, "colors": colors, "stats": color_stats()}))
+            cal, warning = load_color_calibration(path)
+            self.assertIsNone(warning)
+            self.assertIn(STATS_KEY, cal)
+            self.assertEqual(classify((50, 55, 45, 150), cal), "black")
+
+    def test_write_and_read_back_with_fake_sensor(self):
+        class FakeSensor:
+            integration_s = 0.0
+            calibration = None
+            closed = False
+            level = 1000
+            n = 0
+
+            def read_raw(self):
+                self.n += 1
+                return (self.level + self.n % 3, 100, 100, 2 * self.level)
+
+            def close(self):
+                self.closed = True
+
+        sensor = FakeSensor()
+        settings = {"integration_ms": config.COLOR_INTEGRATION_MS, "gain": config.COLOR_GAIN}
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "colors.json"
+            with mock.patch.object(config, "COLOR_CALIBRATION_FILE", path), \
+                    mock.patch.object(config, "COLOR_CAL_SAMPLES", 6), \
+                    mock.patch.object(calibrate_color, "ColorSensor", return_value=sensor), \
+                    mock.patch.object(calibrate_color, "live"), \
+                    mock.patch.object(calibrate_color.time, "sleep"), \
+                    mock.patch("builtins.input", return_value=""), \
+                    redirect_stdout(io.StringIO()):
+                calibrate_color.run(None)                         # alle fünf
+                data = json.loads(path.read_text())
+                self.assertEqual(set(data["stats"]), set(config.COLOR_NAMES))
+                self.assertEqual(data["settings"], settings)
+                self.assertEqual(len(data["stats"]["white"]["mean"]), 4)
+                self.assertEqual(len(data["colors"]["white"]), 4)
+                self.assertGreater(data["stats"]["white"]["std"][0], 0.0)
+                # nur Blau neu, mit anderer Helligkeit: die anderen Statistiken bleiben
+                before = {n: json.dumps(v) for n, v in data["stats"].items() if n != "blue"}
+                sensor.level = 400
+                calibrate_color.run(["blue"])
+                data2 = json.loads(path.read_text())
+                self.assertEqual({n: json.dumps(v) for n, v in data2["stats"].items() if n != "blue"}, before)
+                self.assertNotEqual(data2["stats"]["blue"], data["stats"]["blue"])
+                self.assertEqual(data2["colors"]["blue"][3], 800)
+            cal, warning = load_color_calibration(path)
+            self.assertIsNone(warning)
+            self.assertIn(STATS_KEY, cal)
+
+    def test_merge_rescales_brightness_when_white_changes(self):
+        colors, stats = calibrate_color.merge(
+            RAW_COLORS, color_stats(), {"white": [(900, 850, 700, 1250)] * 3})    # Weiß halb so hell wie vorher
+        self.assertEqual(colors["white"][3], 1250)
+        self.assertAlmostEqual(stats["black"]["mean"][3], 2 * RAW_COLORS["black"][3] / 2500, places=4)
+        self.assertAlmostEqual(stats["white"]["mean"][3], 1.0, places=4)
+
+    def test_warn_close(self):
+        stats = color_stats()
+        stats["silver"]["mean"] = list(stats["white"]["mean"])
+        stats["silver"]["mean"][3] += 0.02
+        out = io.StringIO()
+        with redirect_stdout(out):
+            calibrate_color.warn_close(stats)
+        self.assertIn("Weiß und Silber", out.getvalue())
+        out = io.StringIO()
+        with redirect_stdout(out):
+            calibrate_color.warn_close(color_stats())
+        self.assertEqual(out.getvalue(), "")
+
+
 class CallTest(unittest.TestCase):
     """call.py ruft die richtigen Kalibrierungen auf (die Kalibrierungen selbst sind nachgebaut)."""
 
@@ -931,3 +1069,273 @@ class FrontSlipTest(unittest.TestCase):
         self.assertIs(result.status, MoveStatus.BLOCKED)
         self.assertEqual(actions.count("Rutscht vorne"), config.CONTACT_MAX_TRIES)
         self.assertTrue(any(what == "blockiert" for what, _ in seen))
+
+
+class FrontSpikeUltrasonic(FakeUltrasonic):
+    """Vorne ein einzelner Störimpuls (3 cm), sobald der Roboter `at_x` cm gefahren ist (nur in der Fahrschleife)."""
+
+    def __init__(self, body, at_x):
+        super().__init__(body)
+        self.at_x, self.fired = at_x, False
+
+    def measure(self, side):
+        if side == "front" and not self.fired and self.body.x >= self.at_x:
+            self.fired = True
+            self.last[side] = 3.0
+            return 3.0
+        return super().measure(side)
+
+
+class StopMedianTest(unittest.TestCase):
+    def test_median_function(self):
+        self.assertIsNone(stop_median([]))
+        self.assertEqual(stop_median([30.0]), 30.0)
+        self.assertEqual(stop_median([30.0, 22.0]), 26.0)           # bei 2 Werten der Median dieser
+        self.assertEqual(stop_median([30.0, 30.0, 22.0]), 30.0)     # Ausreißer verändert nichts
+        self.assertEqual(stop_median([22.0, 30.0, 30.5]), 30.0)
+
+    def drive_with_spike(self, back=False):
+        body = Body(wall_cm=FACE + 2 * TILE)
+        us = FrontSpikeUltrasonic(body, 23.0)
+        robot = RealRobot(FakeMotors(body), us, FakeColor(body))
+        seen = []
+        robot.trace = lambda what, **v: seen.append((what, v))
+        result = robot.forward(set())
+        return body, result, seen
+
+    def test_spike_does_not_stop_early(self):
+        """Störimpuls 3 cm bei 23 cm Fahrt: ohne Median wäre der Halt auf 22 cm gesetzt (5 cm zu kurz)."""
+        body, result, seen = self.drive_with_spike()
+        self.assertIs(result.status, MoveStatus.OK)
+        self.assertAlmostEqual(body.x, TILE, delta=1.5)
+        spike = [v for what, v in seen if what == "vorne" and v["cm"] == 3.0][0]
+        self.assertAlmostEqual(spike["raster"], 22.0, delta=0.01)    # der Rasterwert selbst ist verfälscht ...
+        self.assertAlmostEqual(spike["median"], TILE, delta=1.5)     # ... der Haltepunkt nicht
+
+    def test_without_median_it_would_stop_early(self):
+        with mock.patch.object(config, "FRONT_STOP_MEDIAN", 1), mock.patch.object(config, "ARRIVE_FIX_MAX_CM", 0.0):
+            body, _, _ = self.drive_with_spike()
+        self.assertLess(body.x, 26.0)           # stoppt sofort, 7 cm zu kurz
+
+
+class RelocatedTest(unittest.TestCase):
+    def test_clears_values_of_the_old_place(self):
+        robot = make_robot(Body(wall_cm=None))
+        robot._wall_values = {"front": 10.0, "left": 6.0, "right": 6.0}
+        robot.rear_free_cm, robot.front_free_cm, robot._front_fresh = 20.0, 10.0, 12.0
+        robot.blind_streak = 1
+        robot.relocated()
+        self.assertIsNone(robot._wall_values)
+        self.assertIsNone(robot.rear_free_cm)
+        self.assertIsNone(robot.front_free_cm)
+        self.assertIsNone(robot._front_fresh)
+        self.assertEqual(robot.blind_streak, 1)
+
+    def test_competition_calls_it_after_lack_of_progress(self):
+        import main
+        calls = []
+        robot = make_robot(Body(wall_cm=None))
+        robot.relocated = lambda: calls.append("relocated")
+        robot.clear_interrupt = lambda: calls.append("clear")
+
+        class Explorer:
+            mode = ""
+            runs = 0
+
+            def run(self):
+                raise LackOfProgress
+
+            def resume(self):
+                return None
+
+            def lack_of_progress(self):
+                calls.append("lop")
+
+        main.competition(robot, Explorer(), lambda: "lop")
+        self.assertEqual(calls[:3], ["clear", "relocated", "lop"])
+
+
+class ArrivalFixTest(unittest.TestCase):
+    FC = config.FRONT_CENTER_CM
+
+    def test_target_is_nearest_tile_center(self):
+        self.assertAlmostEqual(arrival_target(self.FC + 4), self.FC)
+        self.assertAlmostEqual(arrival_target(self.FC + TILE - 3), self.FC + TILE)
+        self.assertAlmostEqual(arrival_target(self.FC - 3), self.FC)       # n nie negativ
+
+    def test_thresholds(self):
+        self.assertIsNone(None if arrival_fix(None) == 0.0 else 1)
+        self.assertEqual(arrival_fix(self.FC + 2.0), 0.0)                  # Rauschen
+        self.assertAlmostEqual(arrival_fix(self.FC + 4.0), 4.0)            # zu weit weg: vor
+        self.assertAlmostEqual(arrival_fix(self.FC - 3.5), -3.5)           # zu nah: zurück
+        self.assertAlmostEqual(arrival_fix(self.FC + TILE + 9.0), 9.0)     # mehrere Kacheln weiter
+        self.assertEqual(arrival_fix(self.FC + 12.0), 0.0)                 # über ARRIVE_FIX_MAX_CM: anderes Echo
+        self.assertEqual(arrival_fix(self.FC + TILE / 2 + 0.1), arrival_fix(self.FC + TILE / 2 + 0.1))
+
+    def test_robot_settles_when_tolerance_leaves_overshoot(self):
+        """Wand 12 cm weiter als die Kachelmitte: der Halt wird auf 38 cm begrenzt (4 cm zu kurz), dann setzt er nach vorn."""
+        body = Body(wall_cm=FACE + TILE + 12)
+        robot = make_robot(body)
+        seen = []
+        robot.trace = lambda what, **v: seen.append((what, v))
+        result = robot.forward(set())
+        self.assertIs(result.status, MoveStatus.OK)
+        fixes = [v for what, v in seen if what == "nachgesetzt"]
+        self.assertEqual(len(fixes), 1)
+        self.assertAlmostEqual(fixes[0]["strecke"], 4.0, delta=1.0)
+        self.assertAlmostEqual(fixes[0]["danach"], config.FRONT_CENTER_CM, delta=1.0)
+        self.assertAlmostEqual(body.x, TILE + 12, delta=1.5)
+        self.assertAlmostEqual(robot._front_fresh, config.FRONT_CENTER_CM, delta=1.0)
+
+    def test_no_extra_measurement_without_wall_or_when_in_place(self):
+        body = Body(wall_cm=None)
+        robot = make_robot(body)
+        robot.forward(set())
+        self.assertIsNone(robot._front_fresh)                               # keine Wand in Reichweite: nichts gemessen
+        body = Body(wall_cm=FACE + TILE)
+        robot = make_robot(body)
+        seen = []
+        robot.trace = lambda what, **v: seen.append(what)
+        robot.forward(set())
+        self.assertNotIn("nachgesetzt", seen)
+        self.assertIsNotNone(robot._front_fresh)                            # trotzdem für read_walls / nächste Fahrt gemerkt
+
+    def test_moving_clears_fresh_value(self):
+        robot = make_robot(Body(wall_cm=None))
+        robot._front_fresh = 8.0
+        robot._rotate(10)
+        self.assertIsNone(robot._front_fresh)
+        robot._front_fresh = 8.0
+        robot.drive_cm(1)
+        self.assertIsNone(robot._front_fresh)
+        robot._front_fresh = 8.0
+        robot.reset()
+        self.assertIsNone(robot._front_fresh)
+
+
+class StillTimeTest(unittest.TestCase):
+    """Stillstandszeit sparen: gültige Messwerte nicht noch einmal messen."""
+
+    class Counting(FakeUltrasonic):
+        def __init__(self, body):
+            super().__init__(body)
+            self.calls = []
+
+        def measure(self, side):
+            self.calls.append(side)
+            return super().measure(side)
+
+    def make(self, wall_cm):
+        body = Body(wall_cm=wall_cm)
+        us = self.Counting(body)
+        robot = RealRobot(FakeMotors(body), us, FakeColor(body))
+        robot.trace = lambda what, **v: self.seen.append((what, v))
+        self.seen = []
+        return body, us, robot
+
+    def test_read_walls_takes_front_from_fresh_value(self):
+        body, us, robot = self.make(FACE + TILE)
+        robot.forward(set())
+        us.calls.clear()
+        robot._front_fresh = 7.5
+        walls = robot.read_walls()
+        self.assertNotIn("front", us.calls)
+        self.assertEqual(us.calls.count("left"), 1)                         # (Fake: median_fast = eine Messung)
+        self.assertEqual([v for what, v in self.seen if what == "wände"][-1]["werte"]["front"], 7.5)
+        self.assertTrue(walls["front"])
+
+    def test_forward_uses_wall_values_without_measuring(self):
+        body, us, robot = self.make(None)
+        robot.read_walls()
+        us.calls.clear()
+        robot.forward(set())
+        first_loop = us.calls[0]                                            # erste Messung ist die der Fahrschleife
+        start = [v for what, v in self.seen if what == "vorwärts"][0]
+        self.assertEqual(start["vorne_quelle"], "wände")
+        seiten = [v for what, v in self.seen if what == "seite"][:2]
+        self.assertEqual([v["cm"] for v in seiten], [config.SIDE_CENTER_CM] * 2)
+        self.assertIn(first_loop, ("front", "left", "right"))
+        self.assertLessEqual(us.calls[:2].count("left") + us.calls[:2].count("right"), 1)   # nicht schon am Start beide Seiten
+
+    def test_forward_sources(self):
+        body, us, robot = self.make(None)
+        robot.forward(set())
+        self.assertEqual([v for what, v in self.seen if what == "vorwärts"][0]["vorne_quelle"], "gemessen")
+        body, us, robot = self.make(FACE + 2 * TILE)
+        robot._front_fresh = 40.0
+        robot.forward(set())
+        self.assertEqual([v for what, v in self.seen if what == "vorwärts"][0]["vorne_quelle"], "frisch")
+        self.assertNotIn("front", us.calls[:1])                             # Start ohne Messung vorne
+
+    def test_backward_clears_values_too(self):
+        body, us, robot = self.make(None)
+        robot.read_walls()
+        robot._front_fresh = 9.0
+        robot.backward()
+        self.assertEqual([v for what, v in self.seen if what == "rückwärts"][0]["vorne_quelle"], "wände")
+
+
+class MedianFastTest(unittest.TestCase):
+    class Dummy:
+        median_fast = Ultrasonic.median_fast
+        median = Ultrasonic.median
+
+        def __init__(self, values):
+            self.values = list(values)
+            self.last = {"front": None}
+            self.calls = 0
+
+        def measure(self, side):
+            self.calls += 1
+            return self.values.pop(0)
+
+    def test_two_steady_values_are_enough(self):
+        d = self.Dummy([10.0, 10.5, 99.0])
+        self.assertAlmostEqual(d.median_fast("front"), 10.25)
+        self.assertEqual(d.calls, 2)
+        self.assertAlmostEqual(d.last["front"], 10.25)
+
+    def test_unsteady_values_continue_to_median(self):
+        d = self.Dummy([10.0, 14.0, 10.2])
+        self.assertAlmostEqual(d.median_fast("front"), 10.2)
+        self.assertEqual(d.calls, 3)
+
+    def test_no_echo_follows_majority_rule(self):
+        d = self.Dummy([None, None, 10.0])
+        self.assertIsNone(d.median_fast("front"))
+        self.assertEqual(d.calls, 3)
+        d = self.Dummy([None, 10.0, 10.1])
+        self.assertAlmostEqual(d.median_fast("front"), 10.05)
+        d = self.Dummy([None, None, None])
+        self.assertIsNone(d.median_fast("front"))
+
+    def test_same_result_as_median_when_noisy(self):
+        self.assertEqual(self.Dummy([5.0, 9.0, 7.0]).median_fast("front"), self.Dummy([5.0, 9.0, 7.0]).median("front"))
+
+
+class FitSlopeTest(unittest.TestCase):
+    def test_exact_line(self):
+        self.assertAlmostEqual(fit_slope([(0, 1.0), (1, 1.2), (2, 1.4), (3, 1.6)]), 0.2)
+        self.assertEqual(fit_slope([(0, 1.0)]), 0.0)
+        self.assertEqual(fit_slope([(2, 1.0), (2, 3.0)]), 0.0)
+
+    def test_fit_is_more_accurate_than_endpoint_difference(self):
+        import random
+        rng = random.Random(5)
+        err_fit = err_end = 0.0
+        for _ in range(300):
+            pts = [(t / 2, 0.1 * t / 2 + rng.gauss(0, 0.4)) for t in range(9)]
+            err_fit += (fit_slope(pts) - 0.1) ** 2
+            err_end += ((pts[-1][1] - pts[0][1]) / 4.0 - 0.1) ** 2
+        self.assertLess(err_fit, 0.7 * err_end)
+
+    def test_steering_needs_three_samples(self):
+        s = Steering()
+        drive(s, [C + 1.0, C + 2.0], [C - 1.0, C - 2.0], step_cm=1.0)       # nur 4 Proben über kurze Strecke, aber Fenster gefüllt
+        s2 = Steering()
+        s2.mode = "both"
+        s2.samples.append((0.0, 0.0))
+        s2.last = {"left": C, "right": C}
+        s2.trusted = {"left": True, "right": True}
+        s2.side("left", C + 3.0, 3.0, (0.0, 0.0))                           # nur 2 Proben, Spanne 3 >= 2: früher Steigung, jetzt 0
+        self.assertEqual(s2.slope, 0.0)

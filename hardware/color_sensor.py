@@ -1,7 +1,8 @@
 """Farbsensor unten (TCS34725 an I2C-Bus 1, Adresse 0x29), über smbus2.
 
 Rohwerte R, G, B, C (C = Helligkeit ohne Filter). Die Bodenfarbe ist die nächstliegende
-kalibrierte Farbe aus data/colors.json (erstellt mit tools/calibrate_color.py).
+kalibrierte Farbe aus data/colors.json (erstellt mit tools/calibrate_color.py), gemessen als Abstand
+in Streuungen (Sigma) der Merkmale; ist keine Farbe nah genug, gilt der Boden als unsicher (None).
 """
 import json
 import time
@@ -24,6 +25,8 @@ _GAINS = {1: 0, 4: 1, 16: 2, 60: 3}
 _IDS = (0x44, 0x4D)     # TCS34725, TCS34727
 
 Raw = tuple[int, int, int, int]   # R, G, B, C
+Features = tuple[float, float, float, float]
+STATS_KEY = "_stats"    # in der Kalibrierung: {Farbe: {"mean": [4], "std": [4]}}, nur wenn für alle Farben vorhanden
 
 
 class ColorSensor:
@@ -60,7 +63,7 @@ class ColorSensor:
         return self.last_raw
 
     def read_color(self) -> str | None:
-        """Nächstliegende kalibrierte Farbe ('white', 'black', ...), None ohne Kalibrierung."""
+        """Nächstliegende kalibrierte Farbe ('white', 'black', ...), None ohne Kalibrierung oder wenn unsicher."""
         raw = self.read_raw()
         self.last_color = classify(raw, self.calibration) if self.calibration else None
         return self.last_color
@@ -84,12 +87,20 @@ class ColorSensor:
             self.bus.close()
 
 
-def load_calibration(path: Path = config.COLOR_CALIBRATION_FILE) -> tuple[dict[str, Raw] | None, str | None]:
-    """Kalibrierwerte laden. Ergebnis: (Farben, Warnung)."""
+def build_calibration(colors: dict, stats: dict | None) -> dict:
+    """Kalibrierung für `classify`: Rohmittel je Farbe, dazu unter STATS_KEY die Streuung, wenn sie für alle Farben da ist."""
+    cal = {name: tuple(values) for name, values in colors.items()}
+    if stats and all(name in stats for name in cal):
+        cal[STATS_KEY] = {name: {"mean": list(stats[name]["mean"]), "std": list(stats[name]["std"])} for name in cal}
+    return cal
+
+
+def load_calibration(path: Path = config.COLOR_CALIBRATION_FILE) -> tuple[dict | None, str | None]:
+    """Kalibrierwerte laden. Ergebnis: (Farben samt Streuung, Warnung)."""
     if not path.exists():
         return None, "Farbsensor nicht kalibriert (python3 -m tools.calibrate_color)"
     data = json.loads(path.read_text())
-    colors = {name: tuple(values) for name, values in data["colors"].items()}
+    colors = build_calibration(data["colors"], data.get("stats"))
     settings = data.get("settings", {})
     if (settings.get("integration_ms") != config.COLOR_INTEGRATION_MS
             or settings.get("gain") != config.COLOR_GAIN):
@@ -97,22 +108,38 @@ def load_calibration(path: Path = config.COLOR_CALIBRATION_FILE) -> tuple[dict[s
     missing = [n for n in ("white", "black") if n not in colors]
     if missing:
         return colors, f"Kalibrierung unvollständig, es fehlt: {', '.join(missing)}"
+    if STATS_KEY not in colors:
+        return colors, "Farbkalibrierung ohne Streuung, bitte neu einmessen"
     return colors, None
 
 
-def features(raw: Raw, white_c: float) -> tuple[float, float, float, float]:
+def features(raw: Raw, white_c: float) -> Features:
     """Farbanteile (unabhängig von der Helligkeit) und Helligkeit relativ zu Weiß."""
     r, g, b, c = raw
     c = max(c, 1)
     return (2 * r / c, 2 * g / c, 2 * b / c, min(3.0, c / max(white_c, 1)))
 
 
-def classify(raw: Raw, calibration: dict[str, Raw]) -> str:
-    white_c = calibration["white"][3] if "white" in calibration else max(v[3] for v in calibration.values())
+def sigma_distance(f: Features, mean, std) -> float:
+    """Abstand eines Merkmalsvektors von einer Farbe in Streuungen (Streuung nicht kleiner als COLOR_STD_MIN)."""
+    return sum(((a - m) / max(s, floor)) ** 2
+               for a, m, s, floor in zip(f, mean, std, config.COLOR_STD_MIN)) ** 0.5
+
+
+def classify(raw: Raw, calibration: dict) -> str | None:
+    """Farbname. Mit Streuung (STATS_KEY): nächste Farbe nach normiertem Abstand, None wenn sie weiter als
+    COLOR_REJECT_SIGMA weg ist. Ohne Streuung (alte Kalibrierung): nächste Farbe nach Merkmalsabstand, nie None."""
+    stats = calibration.get(STATS_KEY)
+    colors = {n: v for n, v in calibration.items() if n != STATS_KEY}
+    white_c = colors["white"][3] if "white" in colors else max(v[3] for v in colors.values())
     f = features(raw, white_c)
+    if stats:
+        distances = {n: sigma_distance(f, stats[n]["mean"], stats[n]["std"]) for n in colors}
+        best = min(distances, key=distances.get)
+        return best if distances[best] <= config.COLOR_REJECT_SIGMA else None
 
     def distance(name: str) -> float:
-        ref = features(calibration[name], white_c)
+        ref = features(colors[name], white_c)
         return sum((a - b) ** 2 for a, b in zip(f, ref))
 
-    return min(calibration, key=distance)
+    return min(colors, key=distance)

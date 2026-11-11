@@ -168,7 +168,7 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   - Blau: bei jedem Befahren warten (Wartezeit laut aktuellem Regelwerk)
   - Silber: Checkpoint, Kartenstand speichern
   - Widerspruch zur Karte (z.B. Wand, wo „offen“ eingetragen): Karte korrigieren, neu planen
-  - Messrauschen: Wände nur beim ersten Besuch eintragen bzw. mehrfach messen
+  - Messrauschen: Wände sind Stimmen (siehe „Wände mit Stimmen“), ein einzelner Messfehler kippt nichts
   - Zeitlimit: Heimweg-Zeit laufend schätzen, bei knapper Restzeit zum Start (Exit-Bonus)
   - Position: Kacheln per Encoder zählen, an Wänden korrigieren (Abstand vorne, mittig zwischen Seitenwänden)
 - **Lack of Progress:** Der Roboter behält die **ganze Karte** (kein Zurückspringen auf den Checkpoint-Stand).
@@ -178,7 +178,35 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   (Webseite, Aufzeichnung), nichts fragt auf „fertig“ ab.
 - **Bodentyp besuchter Kacheln wird nicht überschrieben** (2026-11-11): `MazeMap.mark_detected` ändert besuchte Kacheln und Kacheln mit anderem
   bekanntem Typ nicht mehr (gibt False zurück). Der Explorer loggt „Widerspruch: ...“ und zählt `explorer.contradictions` (auch bei „Unerwartete Wand“
-  an einer als offen bekannten Kante). **Noch ohne Folge** (kein Abbruch); der Projektinhaber entscheidet später, was ab wann passiert.
+  an einer als offen bekannten Kante). **Folge seit 2026-11-11:** beide Nachbarkacheln des Widerspruchs kommen in `explorer.resense`
+  und werden beim Wiederbesuch neu gemessen (siehe „Wände mit Stimmen“); sonst kein Abbruch, der Projektinhaber entscheidet später über mehr.
+- **„Blockiert“ auf bekannt offener Kante nicht sofort Wand** (2026-11-11, Vorgabe Projektinhaber): Meldet `forward`/`backward` BLOCKED auf einer Kante,
+  die als offen bekannt ist und deren Zielkachel besucht ist (er ist dort schon durchgefahren: Verkeilen, zweimal Schleifen), trägt der Explorer
+  nicht gleich eine Wand ein, das könnte den einzigen Heimweg abschneiden. `MazeMap.mark_blocked(pos, d)` zählt je Kante (`blocked(pos, d)`);
+  erst beim `WALL_AFTER_BLOCKED`-ten (2) Mal wird die Wand eingetragen (Log „Blockiert bei (x,y) nach N, Kante gemieden (1/2)“, beim zweiten
+  Mal „Unerwartete Wand“). Bis dahin kostet die Kante in der Planung `PLAN_COST_SUSPECT` (30 s) zusätzlich für „F“, und „B“ darüber ist nicht
+  erlaubt. Ein sicheres Befahren löscht den Zähler (`clear_blocked`, Ergänzung von Claude). Unbekannte Kante oder unbesuchte Zielkachel: sofort Wand
+  wie bisher. Der Widerspruchszähler steigt bei jedem Mal. Nicht auf dem echten Roboter geprüft.
+- **Planungskosten in Sekunden** (2026-11-11, Vorgabe Projektinhaber): Dijkstra rechnet jetzt mit geschätzten Sekunden plus Aufschlag statt mit
+  dimensionslosen Zahlen: `PLAN_COST_FORWARD` = `MOVE_TIME_S` (3,5), `PLAN_COST_TURN` = `TURN_TIME_S` + `PLAN_TURN_PENALTY_S` (1,0) = 3,0,
+  `PLAN_COST_BACKWARD` = `MOVE_BACK_TIME_S` + `PLAN_BACK_PENALTY_S` (1,5) = 5,0 (Wenden + vorwärts = 9,5, B bleibt deutlich billiger),
+  `PLAN_COST_BLUE_REVISIT` 150 s (stark meiden), `PLAN_COST_SUSPECT` 30 s. `estimate_time` bleibt reine Zeit ohne Aufschläge. Der Block „Wegplanung“
+  steht in `config.py` jetzt nach „Geschätzte Dauer der Aktionen“. Nicht auf dem echten Roboter geprüft.
+- **Zeitschätzung aus dem Lauf lernen** (2026-11-11, Vorgabe Projektinhaber): Der Explorer misst mit `robot.time()` die Dauer jeder Aktion: „F“/„B“ von
+  vor `forward`/`backward` bis nach dem Wändemessen (ohne Blau-Warten, das rechnet `estimate_time` getrennt), nur bei Status OK; „T“ um jede 90°-Drehung
+  im Plan. Laufende Mittel in `explorer.durations` (Art -> (Summe, Anzahl)). `estimate_time(..., times=None)` nimmt optional {"F", "B", "T"};
+  `_enough_time_for` übergibt je Art max(config-Wert, gemessenes Mittel), das Mittel zählt ab `TIME_LEARN_MIN` (2) Messungen (nie optimistischer als
+  config). Trace „zeit“ hat `gemessen` ({"F","B","T"}, None solange nichts gemessen). Grund: Zentrieren, Schleifen, Nachsetzen verlängern die Fahrten am
+  echten Roboter. Nicht auf dem echten Roboter geprüft.
+- **Wände mit Stimmen statt einmal für immer** (2026-11-11, Vorgabe Projektinhaber, ersetzt „Wände nur beim ersten Besuch eintragen“): `MazeMap` führt je
+  Kante einen Zähler (`vote_wall(pos, d, present)`: Wand +1, offen −1, begrenzt auf ±`WALL_VOTE_HARD` (3)); `wall()` = True bei > 0, False bei < 0; bei Gleichstand (0) bleibt der bisher bekannte Wert (Abweichung von der Vorgabe „None bei 0“: eine Kante, die von beiden
+  Seiten widersprüchlich gemessen wird, würde sonst unbekannt und den Weg versperren; unbekannt bleibt nur, was nie gemessen wurde).
+  `set_wall` ist die harte Setzung (Zähler ±3: BLOCKED-Wände, Tests). Der Explorer trägt in `_sense_walls` immer alle drei Messungen als Stimmen ein
+  (auch bei bekannten Kanten); ein befahrenes `forward`/`backward` OK ist sicher offen (harte Setzung −3 statt nur einer Stimme, Abweichung von der
+  Vorgabe: er ist physisch durchgefahren). Eine Gegenstimme gegen eine bekannte Kante zählt als Widerspruch, die zweite kippt sie (Log „Wand bei (x,y) nach N korrigiert: jetzt offen/Wand“).
+  Wiederbesuche messen nur Kacheln in `explorer.resense` (Menge, kostet ca. 0,7 s je Messung; Widerspruch = Gegenstimme gegen eine bekannte Kante, „Blockiert“
+  auf bekannt offener Kante oder Bodentyp-Widerspruch: beide Nachbarkacheln bzw. Kachel und Ziel kommen hinein; `_sense_walls` entfernt die gemessene Kachel);
+  nach Lack of Progress kommt die Checkpoint-Kachel hinein und `resume` misst sie neu. Frontier und Planung folgen automatisch. Nicht auf dem echten Roboter geprüft.
 - **Später:** Rampen/Etagen (dritte Koordinate), Opfererkennung
   (pro Wand merken, ob schon abgesucht).
 
@@ -455,9 +483,27 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   hält der Roboter an (`SensorsBlind`, Motoren stromlos, Modus „Angehalten: …“, Lauf beendet; K1 startet neu).
   Ein Sensor mit Echo genügt, damit nichts passiert.
 - **Farbsensor einmessen** (entschieden 2026-11-04): `call.py --rgb` misst alle fünf Bodenfarben (Weiß, Schwarz, Blau,
-  Silber, Rot; Blau/Silber/Rot überspringbar), einzelne Farben können neu eingemessen werden, danach Live-Erkennung.
-- **Farbsensor:** Kalibrierwerkzeug in `tools/` misst Weiß/Schwarz/Blau/Silber/Rot auf dem echten
-  Boden und speichert nach `data/`. Beim Fahren wird die nächstliegende kalibrierte Farbe gewählt.
+  Silber, Rot; Blau/Silber/Rot überspringbar), einzelne Farben können neu eingemessen werden, danach Live-Erkennung. Seit 2026-11-11 mit Streuung (siehe unten).
+- **Farbsensor: Erkennung mit Streuung** (entschieden 2026-11-11, Vorgabe Projektinhaber): Vorher ein Rohwert je Farbe und „nächste Farbe
+  ohne Grenze“; ein helleres Weiß wurde so zu Silber (unterscheiden sich nur in der Helligkeit), nie „unsicher“.
+  - **Einmessen** (`tools/calibrate_color.py`, `call.py --rgb`): je Farbe `COLOR_CAL_SAMPLES` (20) Messungen im Abstand der Integrationszeit,
+    daraus Mittel und Standardabweichung der vier Merkmale (`features`: 2r/c, 2g/c, 2b/c, c/Weiß-c). `data/colors.json` hat weiter
+    `settings` und `colors` (Rohmittel, für Anzeige/Kompatibilität) und neu `"stats": {Farbe: {"mean": [4], "std": [4]}}`. Einzelne Farben neu
+    einmessen: die Statistik der anderen bleibt; wird Weiß neu gemessen, wird die Helligkeit der anderen auf das neue Weiß umgerechnet.
+    Hinweis nach dem Einmessen (`warn_close`), wenn zwei Farben weniger als `COLOR_MIN_SEPARATION_SIGMA` (4) Sigma auseinanderliegen
+    (Streuung je Merkmal: die größere der beiden, nicht unter `COLOR_STD_MIN`).
+  - **Erkennen** (`hardware/color_sensor.py`, `classify`): normierter Abstand d = √Σ((f − Mittel) / max(Streuung, `COLOR_STD_MIN`))² je Farbe,
+    `COLOR_STD_MIN` = (0,02; 0,02; 0,02; 0,05) (Anteile R, G, B; Helligkeit). Die nächste Farbe gewinnt; ist ihr Abstand größer als
+    `COLOR_REJECT_SIGMA` (6), ergibt `classify` None („unsicher“): `read_tile` liefert dann NORMAL, `last_color` ist None.
+  - **Datenstruktur:** `ColorSensor.calibration` bleibt ein Dict Farbe → Rohmittel; die Streuung steht darin unter dem Schlüssel `_stats`
+    (nur wenn sie für alle Farben da ist). So steht sie auch im Kopf der Aufzeichnung und beim Nachrechnen zur Verfügung, ohne `run_log.py`
+    oder `replay_run.py` zu ändern. Alte Aufzeichnungen (ohne `_stats`) rechnen mit dem alten Verfahren.
+  - **Alte Kalibrierung ohne `stats`:** altes Verfahren (nächste Farbe, nie None) und Warnung „Farbkalibrierung ohne Streuung, bitte neu
+    einmessen“ (`load_calibration`, steht auf der Webseite). **Die neuen Werte gelten erst nach dem nächsten Einmessen** (alle Farben, `python3 call.py --rgb`).
+  - Simulation: `SimColorSensor` erzeugt synthetische Streuung (3 % der Merkmale). Tests `ColorClassifyTest` (nachgebauter Sensor).
+  - **Nicht auf dem echten Roboter geprüft.** Schwellen (`COLOR_STD_MIN`, 6 Sigma verwerfen, 4 Sigma Mindestabstand) sind Schätzwerte; mit
+    den ersten echten Streuungen prüfen. Beachten: Weiß und Silber liegen bei der Mindeststreuung 0,05 nur ca. 10 Sigma auseinander, ein
+    Weiß mit +20 % Helligkeit zählt noch als Weiß, +40 % ist Silber.
 - **Exit-Signal:** wird ignoriert (keine Blinkhardware), der Roboter bleibt am Start einfach stehen.
 - **Ablauf:**
   - Beim Booten startet `main.py` (systemd) und wartet auf **K1** (Start).

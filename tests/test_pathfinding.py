@@ -55,7 +55,9 @@ class PlanPathTest(unittest.TestCase):
         m.set_wall((0, 1), Dir.N, True)
         m.set_wall((0, 0), Dir.S, False)    # hinter dem Start liegt eine (unbesuchte) Zielkachel
         self.assertEqual(plan_path(m, (0, 1), Dir.N, {(0, 0)}), ["B"])
-        self.assertEqual(config.PLAN_COST_BACKWARD, 1.5)
+        # Kosten in Sekunden: B (5,0) bleibt deutlich billiger als Wenden (2 Drehungen à 3,0) + vorwärts (3,5) = 9,5
+        self.assertEqual(config.PLAN_COST_BACKWARD, config.MOVE_BACK_TIME_S + config.PLAN_BACK_PENALTY_S)
+        self.assertLess(config.PLAN_COST_BACKWARD, 2 * config.PLAN_COST_TURN + config.PLAN_COST_FORWARD)
 
     def test_dead_end_two_tiles_deep_is_bb(self):
         m = corridor(3)
@@ -87,6 +89,51 @@ class PlanPathTest(unittest.TestCase):
     def test_follow_backward(self):
         from navigation.pathfinding import follow
         self.assertEqual(follow((0, 2), Dir.N, ["B", "B"]), [((0, 2), Dir.N), ((0, 1), Dir.N), ((0, 0), Dir.N)])
+
+    def square(self) -> MazeMap:
+        """Vier besuchte Kacheln im Quadrat, alle Kanten offen: (0,0)-(1,0) direkt oder über (0,1) und (1,1) herum."""
+        m = MazeMap()
+        for pos in [(0, 0), (1, 0), (0, 1), (1, 1)]:
+            m.mark_visited(pos, TileType.NORMAL)
+        for pos, d in [((0, 0), Dir.E), ((0, 0), Dir.N), ((1, 0), Dir.N), ((0, 1), Dir.E)]:
+            m.set_wall(pos, d, False)
+        return m
+
+    def test_blocked_edge_prefers_detour(self):
+        m = self.square()
+        self.assertEqual(plan_path(m, (0, 0), Dir.E, {(1, 0)}), ["F"])
+        m.mark_blocked((0, 0), Dir.E)       # einmal blockiert: +30 s, der Umweg (3 Kacheln + 2 Drehungen = 19,5 s) ist billiger
+        actions = plan_path(m, (0, 0), Dir.E, {(1, 0)})
+        self.assertNotEqual(actions, ["F"])
+        self.assertEqual(actions.count("F"), 3)
+
+    def test_blocked_edge_without_detour_still_used(self):
+        m = corridor(2)
+        m.mark_blocked((0, 0), Dir.N)
+        self.assertEqual(plan_path(m, (0, 0), Dir.N, {(0, 1)}), ["F"])
+
+    def test_no_backward_over_blocked_edge(self):
+        m = corridor(2)
+        m.set_wall((0, 1), Dir.N, True)
+        self.assertEqual(plan_path(m, (0, 1), Dir.N, {(0, 0)}), ["B"])
+        m.mark_blocked((0, 0), Dir.N)
+        actions = plan_path(m, (0, 1), Dir.N, {(0, 0)})
+        self.assertNotIn("B", actions)
+        self.assertEqual(actions, ["L", "L", "F"])
+
+    def test_costs_are_seconds(self):
+        self.assertEqual(config.PLAN_COST_FORWARD, config.MOVE_TIME_S)
+        self.assertEqual(config.PLAN_COST_TURN, config.TURN_TIME_S + config.PLAN_TURN_PENALTY_S)
+
+    def test_estimate_time_has_no_penalties(self):
+        m = corridor(2)
+        self.assertEqual(estimate_time(m, (0, 0), Dir.N, ["L", "F"]), config.TURN_TIME_S + config.MOVE_TIME_S)
+
+    def test_estimate_time_with_measured_times(self):
+        m = corridor(3)
+        times = {"F": 5.0, "B": 6.0, "T": 4.0}
+        self.assertEqual(estimate_time(m, (0, 0), Dir.N, ["F", "F", "R", "R", "B"], times), 10.0 + 8.0 + 6.0)
+        self.assertEqual(estimate_time(m, (0, 0), Dir.N, ["F"], {"F": 5.0}), 5.0)    # fehlende Arten: config
 
     def test_estimate_time(self):
         m = corridor(2)

@@ -47,9 +47,12 @@ def _moves(maze: MazeMap, pos: Pos, heading: Dir, targets: set[Pos]):
             cost = config.PLAN_COST_FORWARD
             if maze.kind(nxt) is TileType.BLUE:   # blau ist nur bekannt, wenn schon besucht
                 cost += config.PLAN_COST_BLUE_REVISIT
+            if maze.blocked(pos, heading):        # hier war er schon einmal blockiert: lieber ein Umweg
+                cost += config.PLAN_COST_SUSPECT
             yield "F", (nxt, heading), cost
     # Rückwärts nur auf eine besuchte Kachel: der Farbsensor sitzt vorne, Schwarz/Rot hinter dem Roboter würde nicht erkannt.
-    if maze.is_passable(pos, heading.back()):
+    # Nicht über eine Kante mit „blockiert“-Verdacht: hinten ist nichts sichtbar, dort würde er sich verkeilen.
+    if maze.is_passable(pos, heading.back()) and not maze.blocked(pos, heading.back()):
         back = step(pos, heading.back())
         if back in maze.visited:
             cost = config.PLAN_COST_BACKWARD
@@ -85,18 +88,21 @@ def follow(pos: Pos, heading: Dir, actions: list[str]) -> list[State]:
     return states
 
 
-def estimate_time(maze: MazeMap, pos: Pos, heading: Dir, actions: list[str]) -> float:
-    """Geschätzte Fahrzeit in Sekunden für eine Aktionsliste."""
+def estimate_time(maze: MazeMap, pos: Pos, heading: Dir, actions: list[str],
+                  times: dict[str, float] | None = None) -> float:
+    """Geschätzte Fahrzeit in Sekunden für eine Aktionsliste (reine Zeit, ohne Planungsaufschläge).
+    `times` ersetzt die Werte aus config je Art: {"F": Kachel vorwärts, "B": Kachel rückwärts, "T": 90°-Drehung}."""
+    t = {"F": config.MOVE_TIME_S, "B": config.MOVE_BACK_TIME_S, "T": config.TURN_TIME_S, **(times or {})}
     total = 0.0
     for a, (p, _) in zip(actions, follow(pos, heading, actions)[1:]):
         if a == "F":
-            total += config.MOVE_TIME_S
+            total += t["F"]
             if maze.kind(p) is TileType.BLUE:
                 total += config.BLUE_WAIT_S
         elif a == "B":
-            total += config.MOVE_BACK_TIME_S
+            total += t["B"]
             if maze.kind(p) is TileType.BLUE:
                 total += config.BLUE_WAIT_S
         else:
-            total += config.TURN_TIME_S
+            total += t["T"]
     return total

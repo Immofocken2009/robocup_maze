@@ -96,22 +96,38 @@ class Ultrasonic:
     def median(self, side: str, n: int = config.US_READINGS) -> float | None:
         """Median aus n Messungen. None, wenn die Mehrheit kein Echo hatte."""
         values = [self.measure(side) for _ in range(n)]
-        hits = [v for v in values if v is not None]
-        if len(hits) * 2 <= n:
-            self.last[side] = None
-            return None
-        self.last[side] = statistics.median(hits)
+        self.last[side] = vote(values)
+        return self.last[side]
+
+    def median_fast(self, side: str, n: int = config.US_READINGS) -> float | None:
+        """Wie `median`, aber nach 2 Messungen fertig, wenn beide ein Echo haben und sich um höchstens STEER_STEADY_CM
+        unterscheiden (Ergebnis: Mittel der beiden): im Stand sind die Werte fast immer so ruhig, das spart eine Messung
+        (ca. 70 ms) je Sensor. Sonst weiter bis n Messungen und Median mit Mehrheitsregel."""
+        values = [self.measure(side) for _ in range(min(2, n))]
+        if len(values) == 2 and None not in values and abs(values[0] - values[1]) <= config.STEER_STEADY_CM:
+            self.last[side] = (values[0] + values[1]) / 2
+            return self.last[side]
+        values += [self.measure(side) for _ in range(n - len(values))]
+        self.last[side] = vote(values)
         return self.last[side]
 
     def read_all(self, n: int = 1) -> dict[str, float | None]:
         if n == 1:
             return {side: self.measure(side) for side in SIDES}
-        return {side: self.median(side, n) for side in SIDES}
+        return {side: self.median_fast(side, n) for side in SIDES}
 
     def close(self):
         for echo in self.echos.values():
             echo.close()
         lgpio.gpiochip_close(self.chip)
+
+
+def vote(values: list[float | None]) -> float | None:
+    """Median der Messungen mit Echo; None, wenn die Mehrheit kein Echo hatte."""
+    hits = [v for v in values if v is not None]
+    if len(hits) * 2 <= len(values):
+        return None
+    return statistics.median(hits)
 
 
 def load_calibration(path: Path | None = config.US_CALIBRATION_FILE) -> tuple[dict[str, tuple[float, float]] | None,

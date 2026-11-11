@@ -32,7 +32,9 @@ class Explorer:
         self.checkpoint_heading = Dir.N  # Blickrichtung bei der letzten Ankunft am Checkpoint
         self.events: deque[str] = deque(maxlen=50)
         self.stop_reason: str | None = None   # warum die Erkundung vorzeitig endete (None = alles erkundet)
-        self.contradictions = 0         # Widersprüche zwischen Karte und Messung (nur gezählt, noch ohne Folge)
+        self.contradictions = 0         # Widersprüche zwischen Karte und Messung (Folge: die betroffenen Kacheln werden beim Wiederbesuch neu gemessen)
+        self.durations: dict[str, tuple[float, int]] = {}   # gemessene Dauer je Art ("F", "B", "T"): (Summe in s, Anzahl)
+        self.resense: set[Pos] = set()  # Kacheln, deren Wände beim nächsten Besuch neu gemessen werden (Widerspruch, Lack of Progress)
 
     # --- Hauptablauf ----------------------------------------------------------
 
@@ -51,6 +53,7 @@ class Explorer:
         else:
             self.pos, self.heading = START, Dir.N
         self.planned = []
+        self.resense.add(self.pos)      # von Hand hingestellt: Wände hier neu messen
         self.mode = "Lack of Progress"
         self._log(f"Lack of Progress, weiter bei {self.pos}")
 
@@ -59,6 +62,9 @@ class Explorer:
         self.mode = "erkunden"
         if START not in self.maze.visited:
             self._sense_start()
+        elif self.pos in self.resense and self.pos in self.maze.visited:
+            self.resense.discard(self.pos)
+            self._sense_walls()     # von Hand hingestellt: Wände hier neu messen (Stimmen)
         self._explore()
 
     def _explore(self):
@@ -141,10 +147,14 @@ class Explorer:
             self.planned = _tiles_ahead(states[i:])
             self.on_update()
             if action == "L":
+                t0 = self.robot.time()
                 self.robot.turn_left()
+                self._measured("T", t0)
                 self.heading = self.heading.left()
             elif action == "R":
+                t0 = self.robot.time()
                 self.robot.turn_right()
+                self._measured("T", t0)
                 self.heading = self.heading.right()
             elif not self._forward(backward=action == "B"):
                 break
@@ -157,25 +167,36 @@ class Explorer:
         way = self.heading.back() if backward else self.heading
         target = step(self.pos, way)
         avoid = {TileType.BLACK} if self.enter_red else {TileType.BLACK, TileType.RED}
+        t0 = self.robot.time()
         result = self.robot.backward() if backward else self.robot.forward(avoid)
         self.trace("ergebnis", ziel=target, status=result.status.name,
                    boden=result.floor.value if result.floor else None, **({"rückwärts": True} if backward else {}))
 
         if result.status is MoveStatus.BLOCKED:
-            if self.maze.wall(self.pos, way) is False:
-                self.contradictions += 1        # Karte sagte „offen“
+            known_open = self.maze.wall(self.pos, way) is False
+            if known_open:
+                self._contradiction(self.pos, target)   # Karte sagte „offen“
+            where = f"{'hinten ' if backward else ''}bei {self.pos}"
+            # Bekannt offene Kante, Zielkachel besucht (er ist dort schon durchgefahren): erst beim zweiten Mal Wand,
+            # sonst könnte ein einmaliges Verkeilen den einzigen Heimweg abschneiden.
+            if known_open and target in self.maze.visited and not self.maze.mark_blocked(self.pos, way):
+                self._log(f"Blockiert {where} nach {way.name}, Kante gemieden "
+                          f"({self.maze.blocked(self.pos, way)}/{config.WALL_AFTER_BLOCKED})")
+                return False
             self.maze.set_wall(self.pos, way, True)
-            self._log(f"Unerwartete Wand {'hinten ' if backward else ''}bei {self.pos}, plane neu")
+            self._log(f"Unerwartete Wand {where}, plane neu")
             return False
         if result.status is MoveStatus.AVOIDED:
             if not self.maze.mark_detected(target, result.floor):
-                self.contradictions += 1
+                self._contradiction(self.pos, target)
                 self._log(f"Widerspruch: {result.floor.value} erkannt bei {target}, "
                           f"Karte sagt {self.maze.kind(target).value} (besucht: {target in self.maze.visited})")
             what = "Schwarze Kachel" if result.floor is TileType.BLACK else "Gefahrenzone"
             self._log(f"{what} bei {target}, zurück")
             return False
 
+        self.maze.set_wall(self.pos, way, False)    # befahren = sicher offen (harte Setzung)
+        self.maze.clear_blocked(self.pos, way)
         self.pos = target
         is_new = target not in self.maze.visited
         if is_new:
@@ -184,6 +205,9 @@ class Explorer:
             self._sense_walls()
             if floor is TileType.SILVER:
                 self._log(f"Checkpoint bei {target}")
+        elif target in self.resense:
+            self._sense_walls()                 # Karte hat hier widersprochen: beim Wiederbesuch neu messen
+        self._measured("B" if backward else "F", t0)    # ohne das Blau-Warten (estimate_time rechnet es getrennt)
         if self.maze.kind(target) is TileType.SILVER:
             self.last_checkpoint = target
             self.checkpoint_heading = self.heading
@@ -195,12 +219,41 @@ class Explorer:
     # --- Hilfsfunktionen ------------------------------------------------------
 
     def _sense_walls(self):
-        """Wände nur eintragen, wenn sie noch unbekannt sind (gegen Messrauschen)."""
+        """Jede Messung ist eine Stimme für die Kante (Wand +1, offen -1, auch bei schon bekannten Kanten): ein einzelner
+        Messfehler kippt nichts, wiederholte Gegenstimmen korrigieren die Karte."""
         sides = {"front": self.heading, "left": self.heading.left(), "right": self.heading.right()}
         for side, present in self.robot.read_walls().items():
             d = sides[side]
-            if self.maze.wall(self.pos, d) is None:
-                self.maze.set_wall(self.pos, d, present)
+            if self.maze.wall(self.pos, d) not in (None, present):
+                self._contradiction(self.pos, step(self.pos, d))
+            self._vote(self.pos, d, present)
+        self.resense.discard(self.pos)          # hier gerade gemessen (die Gegenkachel eines Widerspruchs bleibt vorgemerkt)
+
+    def _contradiction(self, a: Pos, b: Pos):
+        """Karte und Messung widersprechen sich: zählen, beide Kacheln beim nächsten Besuch neu messen."""
+        self.contradictions += 1
+        self.resense.update((a, b))
+
+    def _vote(self, pos: Pos, d: Dir, present: bool):
+        if self.maze.vote_wall(pos, d, present):
+            self._log(f"Wand bei {pos} nach {d.name} korrigiert: jetzt {'Wand' if present else 'offen'}")
+
+    def _measured(self, kind: str, t0: float):
+        """Dauer einer Aktion merken (laufender Mittelwert je Art)."""
+        total, count = self.durations.get(kind, (0.0, 0))
+        self.durations[kind] = (total + self.robot.time() - t0, count + 1)
+
+    def _times(self) -> dict[str, float]:
+        """Dauer je Art für die Schätzung: das Größere aus config und dem gemessenen Mittel (ab TIME_LEARN_MIN Messungen)."""
+        defaults = {"F": config.MOVE_TIME_S, "B": config.MOVE_BACK_TIME_S, "T": config.TURN_TIME_S}
+        times = {}
+        for kind, default in defaults.items():
+            total, count = self.durations.get(kind, (0.0, 0))
+            times[kind] = max(default, total / count) if count >= config.TIME_LEARN_MIN else default
+        return times
+
+    def _measured_means(self) -> dict[str, float | None]:
+        return {k: (self.durations[k][0] / self.durations[k][1] if k in self.durations else None) for k in ("F", "B", "T")}
 
     def _enough_time_for(self, actions: list[str]) -> bool:
         """Reicht die Zeit, um zur Grenzkachel, von dort heim und für das Exit-Signal?"""
@@ -209,12 +262,14 @@ class Explorer:
         if home is None:
             self.trace("zeit", heimweg=None, reicht=True)
             return True
-        there = estimate_time(self.maze, self.pos, self.heading, actions)
-        back = estimate_time(self.maze, end_pos, end_heading, home)
+        times = self._times()
+        there = estimate_time(self.maze, self.pos, self.heading, actions, times)
+        back = estimate_time(self.maze, end_pos, end_heading, home, times)
         now = self.robot.time()
         enough = now + there + back + config.EXIT_SIGNAL_S + config.TIME_MARGIN_S <= self.time_limit_s
         self.trace("zeit", jetzt=now, hin=there, heimweg="".join(home), heim=back, exit=config.EXIT_SIGNAL_S,
-                   reserve=config.TIME_MARGIN_S, grenze=self.time_limit_s, reicht=enough)
+                   reserve=config.TIME_MARGIN_S, grenze=self.time_limit_s, reicht=enough,
+                   gemessen=self._measured_means())
         return enough
 
     def _log(self, text: str):

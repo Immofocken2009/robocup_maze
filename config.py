@@ -62,6 +62,11 @@ COLOR_GAIN = 60                 # 1, 4, 16 oder 60
 COLOR_CALIBRATION_FILE = PROJECT_DIR / "data" / "colors.json"   # tools/calibrate_color.py
 COLOR_NAMES = ("white", "black", "blue", "silver", "red")
 COLOR_STOP_COUNT = 2            # so viele Messungen hintereinander schwarz/rot, bevor angehalten wird
+COLOR_CAL_SAMPLES = 20          # Messungen je Farbe beim Einmessen (Mittel und Streuung der Merkmale)
+COLOR_STD_MIN = (0.02, 0.02, 0.02, 0.05)   # kleinste Streuung je Merkmal (Anteil R, G, B, Helligkeit) beim Erkennen:
+                                # bei der Kalibrierung ruhig gemessene Streuung soll nicht zu scharfen Grenzen führen
+COLOR_REJECT_SIGMA = 6.0        # kleinster normierter Abstand größer als das = Farbe unsicher (None, zählt als normaler Boden)
+COLOR_MIN_SEPARATION_SIGMA = 4.0   # beim Einmessen Hinweis, wenn zwei Farben weniger als so viele Sigma auseinanderliegen
 
 # --- Motoren (BrickPi3) --------------------------------------------------------
 MOTOR_PORTS = {"left": "B", "right": "C"}   # geprüft 2026-11-04
@@ -149,6 +154,11 @@ STEER_CONTACT_SHARE = 0.8       # ... und in den letzten STEER_CONTACT_DIST_CM c
 FRONT_STUCK_DIST_CM = 8.0       # Festfahren vorne: sinkt der Abstand vorne über so viele cm Encoderstrecke ...
 FRONT_STUCK_RATIO = 0.5         # ... um weniger als dieses Vielfache der Encoderstrecke, rutschen die Ketten (echt 0,87, Lauf 2026-11-11 16:42: 9,5 von
                                 # 22 cm): zurücksetzen, ohne Wegdrehen (Seite unbekannt), weiterfahren; zählt zu CONTACT_MAX_TRIES
+FRONT_STOP_MEDIAN = 3           # Haltepunkt vorne = Median der Rasterwerte der letzten so vielen Messungen (ein Störimpuls, z.B. 3 cm
+                                # bei 25 cm Fahrt, setzte den Halt sonst sofort 5 cm zu kurz; am 2026-11-10 gab es Impulse mit 2,6-8 cm reihenweise)
+ARRIVE_FIX_MIN_CM = 3.0         # Nachsetzen am Kachelende: Abweichung vorne vom Kachelraster mindestens so groß ...
+ARRIVE_FIX_MAX_CM = 10.0        # ... und höchstens so groß (größer: wahrscheinlich anderes Echo, nichts tun). Die Seitensensoren sitzen
+                                # 7,25 cm vor der Drehmitte, bei bis zu 8 cm Überschuss messen sie sonst schon die Nachbarkachel
 CONTACT_BACK_CM = 5.0           # so weit zurücksetzen, wenn er schleift
 CONTACT_ANGLE_DEG = 8.0         # danach so weit von der Wand weg drehen (wie DEAD_END_ANGLE_DEG)
 CONTACT_MAX_TRIES = 2           # so oft je Fahrt zurücksetzen; danach wie "Ketten blockiert" (zurück, als Wand melden)
@@ -192,19 +202,26 @@ PENALTY_PER_LOP = 15        # Abzug im Zuverlässigkeitsbonus je Lack of Progres
 RED_MODES = ("zuletzt", "meiden", "normal")
 RED_MODE = "zuletzt"        # Standard, auf der Webseite vor jedem Lauf wählbar
 
-# --- Wegplanung (Kosten für Dijkstra) ----------------------------------------
-PLAN_COST_FORWARD = 1.0
-PLAN_COST_TURN = 1.0            # pro 90°-Drehung
-PLAN_COST_BACKWARD = 1.5        # eine Kachel rückwärts (nur auf besuchte Kacheln: der Farbsensor sitzt vorne); billiger als
-                                # Wenden (2 Drehungen) + vorwärts = 3, teurer als vorwärts (Vorgabe Projektinhaber 2026-11-11)
-PLAN_COST_BLUE_REVISIT = 50.0   # bereits besuchte blaue Kachel erneut befahren: stark meiden
-
 # --- Geschätzte Dauer der Aktionen (Sim-Zeit und Heimweg-Schätzung) ----------
 MOVE_TIME_S = 3.5           # eine Kachel vorwärts inkl. Messen (Fahrphysik: 3,2 s + Wände 0,6 s). MESSEN!
 MOVE_BACK_TIME_S = MOVE_TIME_S   # eine Kachel rückwärts: wie vorwärts geschätzt (kein Wände-Messen danach, dafür kein
                             # Vorhalt am Ziel; gleiche Fahrstrecke und Tempo). MESSEN!
 TURN_TIME_S = 2.0           # eine 90°-Drehung (Fahrphysik: 1,9 s). MESSEN!
 BACKOFF_TIME_S = 2.0        # schwarze/rote Kachel erkannt, anhalten und zurück. MESSEN!
+TIME_LEARN_MIN = 2          # ab so vielen gemessenen Aktionen einer Art nimmt der Explorer das Mittel aus dem Lauf, wenn es größer
+                            # als der Wert oben ist (Zentrieren, Schleifen, Nachsetzen verlängern die Fahrten); Heimweg-Schätzung
+
+# --- Wegplanung (Kosten für Dijkstra, geschätzte Sekunden plus Aufschlag; Vorgabe Projektinhaber 2026-11-11) ---
+PLAN_TURN_PENALTY_S = 1.0       # Drehung kostet zusätzlich Genauigkeit (Ecken streifen, Kettenschlupf)
+PLAN_BACK_PENALTY_S = 1.5       # Rückwärtsfahren kostet zusätzlich: kein Sensor hinten
+PLAN_COST_FORWARD = MOVE_TIME_S
+PLAN_COST_TURN = TURN_TIME_S + PLAN_TURN_PENALTY_S      # pro 90°-Drehung
+PLAN_COST_BACKWARD = MOVE_BACK_TIME_S + PLAN_BACK_PENALTY_S   # eine Kachel rückwärts (nur auf besuchte Kacheln: der Farbsensor
+                                # sitzt vorne); deutlich billiger als Wenden (2 Drehungen + vorwärts = 9,5 s), teurer als vorwärts
+PLAN_COST_BLUE_REVISIT = 150.0  # bereits besuchte blaue Kachel erneut befahren: stark meiden (in Sekunden, wie die anderen Kosten)
+PLAN_COST_SUSPECT = 30.0        # vorwärts über eine Kante, auf der der Roboter schon einmal blockiert war: Umweg bis 30 s lohnt sich
+WALL_AFTER_BLOCKED = 2          # so oft "blockiert" auf einer bekannt offenen Kante (Zielkachel besucht) bis sie als Wand gilt
+WALL_VOTE_HARD = 3              # Stimmenzähler einer Kante: Messung Wand +1, offen -1, begrenzt auf +-3; harte Setzung (blockiert) = +-3
 
 # --- Zufallslabyrinth --------------------------------------------------------
 FIELD_SIZES_2026 = [(8, 7), (8, 8), (9, 8), (7, 8), (4, 12)]   # offizielle Felder 2026

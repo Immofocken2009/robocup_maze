@@ -2,6 +2,7 @@ import unittest
 
 import config
 from navigation.explorer import START, Explorer
+from navigation.pathfinding import estimate_time, plan_path
 from navigation.maze_map import Dir, TileType
 from navigation.robot_interface import MoveResult, MoveStatus
 from simulation.maze_generator import generate
@@ -171,10 +172,12 @@ class BackwardTest(unittest.TestCase):
         explorer.maze.set_wall((0, 1), Dir.S, False)
         explorer.pos, explorer.heading = (0, 1), Dir.N
         self.assertFalse(explorer._forward(backward=True))
-        self.assertIs(explorer.maze.wall((0, 1), Dir.S), True)      # hinten, nicht vorne
+        self.assertIs(explorer.maze.wall((0, 1), Dir.S), False)     # erstes Mal: Kante nur gemieden, noch keine Wand
+        self.assertFalse(explorer._forward(backward=True))
+        self.assertIs(explorer.maze.wall((0, 1), Dir.S), True)      # zweites Mal: Wand, hinten, nicht vorne
         self.assertIsNone(explorer.maze.wall((0, 1), Dir.N))
         self.assertEqual(explorer.pos, (0, 1))
-        self.assertEqual(explorer.contradictions, 1)
+        self.assertEqual(explorer.contradictions, 2)
 
     def test_backward_onto_blue_waits(self):
         waits = []
@@ -200,6 +203,204 @@ class BackwardTest(unittest.TestCase):
 
     def test_time_estimate_counts_backward_like_forward(self):
         self.assertEqual(config.MOVE_BACK_TIME_S, config.MOVE_TIME_S)
+
+
+def corridor_world(length: int = 3) -> SimWorld:
+    tiles = [{"x": 0, "y": y, "walls": "EW", "floor": "normal"} for y in range(length)]
+    return SimWorld.from_dict({"width": 1, "height": length, "start": [0, 0], "tiles": tiles})
+
+
+class BlockedEdgeTest(unittest.TestCase):
+    """„Blockiert“ auf bekannt offener Kante mit besuchter Zielkachel: erst beim zweiten Mal Wand."""
+
+    def explorer(self, robot_class=SimRobot) -> tuple[Explorer, SimRobot]:
+        class Blocks(robot_class):
+            def forward(self, avoid):
+                return MoveResult(MoveStatus.BLOCKED)
+
+        robot = Blocks(corridor_world(), time_limit_s=NO_LIMIT)
+        explorer = Explorer(robot, time_limit_s=NO_LIMIT)
+        for y in range(2):
+            explorer.maze.mark_visited((0, y), TileType.NORMAL)
+        explorer.maze.set_wall((0, 0), Dir.N, False)
+        explorer.pos, explorer.heading = (0, 0), Dir.N
+        return explorer, robot
+
+    def test_first_block_is_no_wall_second_is(self):
+        explorer, _ = self.explorer()
+        self.assertFalse(explorer._forward())
+        self.assertIs(explorer.maze.wall((0, 0), Dir.N), False)
+        self.assertEqual(explorer.maze.blocked((0, 0), Dir.N), 1)
+        self.assertTrue(any("Kante gemieden (1/2)" in e for e in explorer.events), list(explorer.events))
+        self.assertEqual(explorer.contradictions, 1)
+        self.assertFalse(explorer._forward())
+        self.assertIs(explorer.maze.wall((0, 0), Dir.N), True)
+        self.assertTrue(any("Unerwartete Wand" in e for e in explorer.events), list(explorer.events))
+        self.assertEqual(explorer.contradictions, 2)
+
+    def test_plan_stays_after_first_block(self):
+        explorer, _ = self.explorer()
+        explorer._forward()
+        # der Weg über die Kante bleibt (einziger Weg), wird nur teurer
+        self.assertEqual(plan_path(explorer.maze, (0, 0), Dir.N, {(0, 1)}), ["F"])
+
+    def test_unvisited_target_is_wall_at_once(self):
+        explorer, _ = self.explorer()
+        explorer.maze.visited.discard((0, 1))
+        explorer._forward()
+        self.assertIs(explorer.maze.wall((0, 0), Dir.N), True)
+
+    def test_unknown_edge_is_wall_at_once(self):
+        explorer, _ = self.explorer()
+        explorer.maze._votes.clear()
+        explorer.maze._last_known.clear()
+        explorer._forward()
+        self.assertIs(explorer.maze.wall((0, 0), Dir.N), True)
+        self.assertEqual(explorer.contradictions, 0)
+
+
+class WallVoteTest(unittest.TestCase):
+    """Wände mit Stimmen: jede Messung zählt, Widersprüche korrigieren die Karte."""
+
+    def scripted(self, readings: list[dict[str, bool]]):
+        class Scripted(SimRobot):
+            calls = 0
+
+            def read_walls(self):
+                self.calls += 1
+                return readings.pop(0) if readings else super().read_walls()
+
+        robot = Scripted(corridor_world(), time_limit_s=NO_LIMIT)
+        return robot, Explorer(robot, time_limit_s=NO_LIMIT)
+
+    def test_edge_flips_after_two_opposite_measurements(self):
+        robot, explorer = self.scripted([])
+        explorer.maze.mark_visited((0, 0), TileType.NORMAL)
+        explorer.pos, explorer.heading = (0, 0), Dir.N
+        side = {"front": False, "left": True, "right": True}
+        explorer._sense_walls()                                     # echt: vorne offen
+        self.assertIs(explorer.maze.wall((0, 0), Dir.N), False)
+        robot.read_walls = lambda: {**side, "front": True}
+        explorer._sense_walls()                                     # eine Gegenstimme: Gleichstand, bisheriger Wert bleibt
+        self.assertIs(explorer.maze.wall((0, 0), Dir.N), False)
+        explorer._sense_walls()                                     # zweite: gekippt
+        self.assertIs(explorer.maze.wall((0, 0), Dir.N), True)
+        self.assertTrue(any("korrigiert: jetzt Wand" in e for e in explorer.events), list(explorer.events))
+        self.assertEqual(explorer.contradictions, 2)                # beide Gegenstimmen widersprachen der (bei Gleichstand gehaltenen) Karte
+
+    def test_single_wrong_reading_does_not_change_known_edge(self):
+        robot, explorer = self.scripted([])
+        explorer.maze.mark_visited((0, 0), TileType.NORMAL)
+        explorer.pos, explorer.heading = (0, 0), Dir.N
+        for _ in range(3):
+            explorer.maze.vote_wall((0, 0), Dir.N, False)           # dreimal offen gemessen
+        robot.read_walls = lambda: {"front": True, "left": True, "right": True}
+        explorer._sense_walls()
+        self.assertIs(explorer.maze.wall((0, 0), Dir.N), False)
+
+    def test_revisit_measures_only_after_contradiction(self):
+        robot, explorer = self.scripted([])
+        explorer.run()
+        first = robot.calls
+        self.assertEqual(explorer.contradictions, 0)
+        self.assertEqual(first, 2 + 2)                  # Start (2 Messungen) + zwei neue Kacheln, keine Wiederbesuche
+        # Wiederbesuch: nur eine Kachel in resense wird neu gemessen
+        for marked, extra in (({(0, 0)}, True), ({(5, 5)}, False)):
+            robot2, explorer2 = self.scripted([])
+            explorer2.run()
+            explorer2.resense = set(marked)
+            calls = robot2.calls
+            explorer2.pos, explorer2.heading = (0, 1), Dir.N
+            robot2.pos, robot2.dir = (0, 1), Dir.N
+            explorer2._forward(backward=True)                   # zurück auf die besuchte Kachel (0, 0)
+            self.assertEqual(robot2.calls, calls + (1 if extra else 0))
+            self.assertNotIn((0, 0), explorer2.resense)
+
+    def test_contradiction_marks_both_tiles(self):
+        _, explorer = self.scripted([])
+        explorer.maze.mark_visited((0, 0), TileType.NORMAL)
+        explorer.pos, explorer.heading = (0, 0), Dir.N
+        explorer.maze.set_wall((0, 0), Dir.N, False)
+        explorer.robot.read_walls = lambda: {"front": True, "left": True, "right": True}
+        explorer._sense_walls()
+        self.assertEqual(explorer.resense, {(0, 1)})            # (0, 0) selbst wurde gerade gemessen, nur die Gegenkachel bleibt
+        self.assertEqual(explorer.contradictions, 1)
+
+    def test_lack_of_progress_remeasures_walls(self):
+        robot, explorer = self.scripted([])
+        explorer.run()
+        calls = robot.calls
+        explorer.lack_of_progress()
+        robot.pos, robot.dir = (0, 0), Dir.N
+        explorer.resume()
+        self.assertGreater(robot.calls, calls)
+        self.assertNotIn((0, 0), explorer.resense)
+
+    def test_traversing_votes_open(self):
+        _, explorer = self.scripted([])
+        explorer.run()
+        self.assertLessEqual(explorer.maze._votes[((0, 0), (0, 1))], -2)    # befahren = harte Setzung (-3)
+
+
+class TimeLearningTest(unittest.TestCase):
+    def test_default_robot_matches_config(self):
+        robot, explorer = explore(SimWorld.load("einfach"))
+        self.assertAlmostEqual(explorer._times()["F"], config.MOVE_TIME_S)
+        self.assertAlmostEqual(explorer._times()["T"], config.TURN_TIME_S)
+        self.assertAlmostEqual(explorer._measured_means()["F"], config.MOVE_TIME_S)
+
+    def test_slow_robot_lengthens_estimate(self):
+        class Slow(SimRobot):
+            def forward(self, avoid):
+                result = super().forward(avoid)
+                self.sim_time += 2.0
+                return result
+
+            def turn_left(self):
+                super().turn_left()
+                self.sim_time += 1.0
+
+            def turn_right(self):
+                super().turn_right()
+                self.sim_time += 1.0
+
+        traces = []
+        robot = Slow(SimWorld.load("einfach"), time_limit_s=NO_LIMIT)
+        explorer = Explorer(robot, time_limit_s=NO_LIMIT,
+                            trace=lambda what, **v: traces.append(v) if what == "zeit" else None)
+        explorer.run()
+        times = explorer._times()
+        self.assertAlmostEqual(times["F"], config.MOVE_TIME_S + 2.0)
+        self.assertAlmostEqual(times["T"], config.TURN_TIME_S + 1.0)
+        self.assertEqual(times["B"], config.MOVE_BACK_TIME_S)       # nie rückwärts gemessen oder nur wenig
+        with_gemessen = [t for t in traces if t.get("gemessen", {}).get("F")]
+        self.assertTrue(with_gemessen)
+        self.assertAlmostEqual(with_gemessen[-1]["gemessen"]["F"], config.MOVE_TIME_S + 2.0)
+        # Schätzung wächst mit
+        actions = ["F", "R", "F"]
+        self.assertGreater(estimate_time(explorer.maze, (0, 0), Dir.N, actions, times),
+                           estimate_time(explorer.maze, (0, 0), Dir.N, actions))
+
+    def test_slow_robot_goes_home_earlier(self):
+        class Slow(SimRobot):
+            def forward(self, avoid):
+                result = super().forward(avoid)
+                self.sim_time += 3.0
+                return result
+
+        world = SimWorld.load("gross")
+        robot = Slow(world, time_limit_s=200)
+        explorer = Explorer(robot, time_limit_s=200)
+        explorer.run()
+        self.assertEqual(robot.pos, world.start)
+        self.assertLessEqual(robot.sim_time, 200)
+
+    def test_no_learning_before_min_count(self):
+        _, explorer = explore(corridor_world(2))
+        explorer.durations = {"F": (100.0, config.TIME_LEARN_MIN - 1)}
+        self.assertEqual(explorer._times()["F"], config.MOVE_TIME_S)
+        explorer.durations = {"F": (1.0, 10)}                        # kürzer als config: config bleibt (nie optimistischer)
+        self.assertEqual(explorer._times()["F"], config.MOVE_TIME_S)
 
 
 class Interrupted(Exception):

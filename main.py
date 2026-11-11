@@ -65,6 +65,7 @@ def competition(robot: RealRobot, explorer: Explorer, wait_lop, on_status=lambda
                 stopped = True
                 break
             robot.clear_interrupt()
+            robot.relocated()           # von Hand umgesetzt: Messwerte und Rückraum der alten Stelle gelten nicht mehr
             explorer.lack_of_progress()
             on_status("running")
             resume = True

@@ -10,6 +10,7 @@
 Taster (main.py) unterbrechen jede Aktion über interrupt(): K2 -> RunStopped, K3 -> LackOfProgress.
 """
 import math
+import statistics
 import time
 from collections import Counter, deque
 from collections.abc import Callable
@@ -73,6 +74,41 @@ def stop_distance_back(front_cm: float | None, travelled: float) -> float | None
     stop = reached + tiles * config.TILE_SIZE_CM
     tolerance = config.FORWARD_TOLERANCE_CM
     return max(config.TILE_SIZE_CM - tolerance, min(config.TILE_SIZE_CM + tolerance, stop))
+
+
+def stop_median(values) -> float | None:
+    """Haltepunkt aus den Rasterwerten der letzten Vorne-Messungen: der Median (bei 1 oder 2 Werten der Median dieser).
+    Ein einzelner Störimpuls (z.B. 3 cm bei 25 cm Fahrt) verschiebt ihn so nicht. None = keine Werte."""
+    return statistics.median(values) if values else None
+
+
+def arrival_target(front_cm: float) -> float:
+    """Sollabstand vorne am Kachelende: Kachelmitte (FRONT_CENTER_CM + n · Kachellänge), n >= 0, die dem Wert am nächsten liegt."""
+    n = max(0, round((front_cm - config.FRONT_CENTER_CM) / config.TILE_SIZE_CM))
+    return config.FRONT_CENTER_CM + n * config.TILE_SIZE_CM
+
+
+def arrival_fix(front_cm: float | None) -> float:
+    """Nachsetzen am Kachelende: wie weit nach vorne (positiv) bzw. zurück (negativ, cm), damit der Abstand vorne zur Kachelmitte
+    passt. Nur ab ARRIVE_FIX_MIN_CM (sonst Messrauschen) und bis ARRIVE_FIX_MAX_CM (darüber ist es wohl ein anderes Echo).
+    0.0 = nichts tun. Grund: die Seitensensoren sitzen 7,25 cm vor der Drehmitte, die Halte-Toleranz erlaubt bis 8 cm Überschuss:
+    dann messen sie bei der Wandmessung schon die Nachbarkachel."""
+    if front_cm is None:
+        return 0.0
+    delta = front_cm - arrival_target(front_cm)
+    return delta if config.ARRIVE_FIX_MIN_CM <= abs(delta) <= config.ARRIVE_FIX_MAX_CM else 0.0
+
+
+def fit_slope(samples) -> float:
+    """Steigung der Ausgleichsgeraden (kleinste Quadrate) durch (gefahrene cm, Abweichung)-Proben; 0 bei weniger als 2 Proben
+    oder ohne Spannweite."""
+    n = len(samples)
+    if n < 2:
+        return 0.0
+    ms = sum(t for t, _ in samples) / n
+    mo = sum(o for _, o in samples) / n
+    var = sum((t - ms) ** 2 for t, _ in samples)
+    return sum((t - ms) * (o - mo) for t, o in samples) / var if var > 0 else 0.0
 
 
 def _clamp(value: float, limit: float) -> float:
@@ -212,9 +248,11 @@ class Steering:
             while len(self.samples) > 2 and travelled - self.samples[1][0] >= config.STEER_D_WINDOW_CM:
                 self.samples.popleft()
             slope = 0.0
-            t0, o0 = self.samples[0]
-            if travelled - t0 >= config.STEER_D_WINDOW_CM / 2:
-                slope = (offset - o0) / (travelled - t0)   # positiv = driftet nach rechts
+            t0 = self.samples[0][0]
+            if len(self.samples) >= 3 and travelled - t0 >= config.STEER_D_WINDOW_CM / 2:
+                # Ausgleichsgerade über alle Proben im Fenster: die Differenz der Endpunkte gab bei 0,4 cm Messrauschen über
+                # 2-4 cm Fahrt ein Lenkrauschen bis ca. 35 dps
+                slope = fit_slope(self.samples)            # positiv = driftet nach rechts
             if mode != "both" or self.width > config.CORRIDOR_MAX_CM:
                 slope = 0.0                                 # kein echter Gang (zwei nahe Wände): nur P
                 self.samples.clear()                        # D-Fenster beginnt neu
@@ -378,6 +416,9 @@ class RealRobot(RobotInterface):
         # Freier Raum vor dem Roboter (cm), nur nach Rückwärtsfahren bekannt (er kam von dort, `backward`): damit kann er vor
         # einer Drehung auch nach VORNE seitlich zentrieren, wenn hinten nichts bekannt ist. Sonst None = unbekannt.
         self.front_free_cm: float | None = None
+        # Abstand vorne (cm) vom Kachelende (`_settle`), gültig nur, solange er sich seither nicht bewegt hat: spart `read_walls`
+        # und dem nächsten `forward`/`backward` die Messung vorne. None = nicht vorhanden.
+        self._front_fresh: float | None = None
 
     # --- Steuerung durch main.py ------------------------------------------------
 
@@ -397,7 +438,17 @@ class RealRobot(RobotInterface):
         self.blind_streak = 0
         self.rear_free_cm = None
         self.front_free_cm = None
+        self._front_fresh = None
         self.set_action("bereit")
+
+    def relocated(self):
+        """Nach Lack of Progress: der Roboter wurde von Hand umgesetzt, alle Werte von der alten Stelle gelten nicht mehr
+        (Wandmessung, Raum hinten/vorne, Abstand vorne vom Kachelende). Sonst nutzt das Zentrieren vor der Drehung Messwerte der
+        alten Kachel und einen alten Rückraum. `blind_streak` bleibt (der Sensorausfall hängt nicht vom Ort ab)."""
+        self._wall_values = None
+        self.rear_free_cm = None
+        self.front_free_cm = None
+        self._front_fresh = None
 
     def interrupt(self, reason: str):
         """Von einem anderen Thread: laufende Aktion abbrechen ('stop' oder 'lop')."""
@@ -441,7 +492,11 @@ class RealRobot(RobotInterface):
 
     def read_walls(self) -> dict[str, bool]:
         self._begin("misst Wände")
-        values = self.us.read_all(config.US_READINGS)
+        if self._front_fresh is not None:       # vorne schon am Kachelende gemessen (`_settle`): nur die Seiten messen
+            values = {"front": self._front_fresh,
+                      **{side: self.us.median_fast(side, config.US_READINGS) for side in ("left", "right")}}
+        else:
+            values = self.us.read_all(config.US_READINGS)
         self.walls = {side: v is not None and v < config.WALL_THRESHOLD_CM for side, v in values.items()}
         self.trace("wände", werte=values, wände=self.walls)
         self._wall_values = values
@@ -523,25 +578,53 @@ class RealRobot(RobotInterface):
         self._begin("misst Boden")
         return self._measure_floor()
 
-    def forward(self, avoid: set[TileType]) -> MoveResult:
+    def _start_values(self) -> tuple[dict | None, float | None, str]:
+        """Beginn von `forward`/`backward`: Messwerte, die noch gelten (Roboter hat sich seit `read_walls` bzw. dem Nachsetzen nicht
+        bewegt), nicht noch einmal messen. Ergebnis: (Wandwerte oder None, Abstand vorne, Quelle 'wände'/'frisch'/'gemessen').
+        Löscht beides: ab jetzt bewegt er sich."""
+        values, fresh = self._wall_values, self._front_fresh
         self._wall_values = None
+        self._front_fresh = None
         self.apply_settings()
         self._begin("prüft vorne")
-        front = self.us.median("front")
+        if values is not None:
+            return values, values["front"], "wände"
+        if fresh is not None:
+            return None, fresh, "frisch"
+        return None, self.us.median("front"), "gemessen"
+
+    def _settle(self):
+        """Am Kachelende (nach Anhalten und Geradedrehen), wenn vorne eine Wand in Reichweite war: Abstand vorne messen und, wenn er
+        um ARRIVE_FIX_MIN_CM bis ARRIVE_FIX_MAX_CM vom Kachelmitten-Abstand abweicht, nachsetzen (`arrival_fix`), dann noch einmal
+        messen. Der Wert bleibt in `_front_fresh` (für `read_walls` und den nächsten Start), im Normalfall kostet das also nichts extra."""
+        front = self.us.median_fast("front")
+        delta = arrival_fix(front)
+        if delta:
+            self.set_action("Setzt nach", f"{delta:+.1f} cm")
+            self.drive_cm(delta)
+            after = self.us.median_fast("front")
+            self.trace("nachgesetzt", vorne=front, soll=arrival_target(front), strecke=delta, danach=after)
+            front = after
+        self._front_fresh = front
+
+    def forward(self, avoid: set[TileType]) -> MoveResult:
+        values, front, source = self._start_values()
         if front is not None and front < config.WALL_THRESHOLD_CM:
             self.set_action("Wand vorne", f"{front:.1f} cm")
             return MoveResult(MoveStatus.BLOCKED)
         stop_at = stop_distance(front, 0.0)
+        last_grid = stop_at                     # Raster der letzten Messung vorne (None = keine Wand in Reichweite)
+        grid_hist: deque[float] = deque([] if stop_at is None else [stop_at], maxlen=config.FRONT_STOP_MEDIAN)
         stop_text = "Halt nach Abstand vorne" if stop_at is not None else "Halt nach Encoder"
         stop_at = stop_at or config.TILE_SIZE_CM
-        self.trace("vorwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm)
+        self.trace("vorwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm, vorne_quelle=source)
 
         l0, r0 = self.motors.positions()
         base = 0.0                              # schon gefahrene cm vor l0/r0 (nach dem Zurücksetzen bei Wandkontakt neu gesetzt)
         steering = Steering(self.corridor_cm)
         heading = HeadingEstimate()
         for side in ("left", "right"):          # erste Seitenmessung, zählt nach der zweiten
-            cm = self.us.measure(side)
+            cm = values[side] if values is not None else self.us.measure(side)
             steering.side(side, cm, base, (0.0, 0.0))
             self.trace("seite", seite=side, cm=cm, gefahren=base, **steering.values())
         tries = 0                               # Zurücksetzen wegen Schleifen an der Wand oder Rutschen vorne
@@ -580,8 +663,11 @@ class RealRobot(RobotInterface):
                 travelled = base + self._travelled(l0, r0)
                 if side == "front":
                     grid = stop_distance(cm, travelled)
-                    stop_at = grid or stop_at       # jede Messung neu ins Raster
-                    self.trace("vorne", cm=cm, gefahren=travelled, raster=grid, halt_bei=stop_at)
+                    last_grid = grid
+                    if grid is not None:            # Median der letzten Rasterwerte: ein Störimpuls verschiebt den Halt nicht
+                        grid_hist.append(grid)
+                        stop_at = stop_median(grid_hist)
+                    self.trace("vorne", cm=cm, gefahren=travelled, raster=grid, halt_bei=stop_at, median=stop_at)
                     if grid is not None and not slipping:
                         slipping = self._front_slips(front_hist, travelled, cm)
                 else:
@@ -618,6 +704,7 @@ class RealRobot(RobotInterface):
                 heading = HeadingEstimate()
                 heading.at = base
                 front_hist.clear()
+                grid_hist.clear()
                 slipping = False
                 for side in ("left", "right"):
                     cm = self.us.measure(side)
@@ -670,6 +757,8 @@ class RealRobot(RobotInterface):
         if fix:
             self.detail = f"dreht sich {abs(fix):.1f}° gerade"
             self._rotate(fix)
+        if last_grid is not None:
+            self._settle()
         floor = self._measure_floor()
         return MoveResult(MoveStatus.OK, floor)
 
@@ -693,21 +782,20 @@ class RealRobot(RobotInterface):
         - Halt: Fahrstrecke TILE_SIZE_CM, bei Wand vorne in Reichweite nach dem wachsenden Abstand vorne ins Raster
           (`stop_distance_back`). Kein Farbsensor-Stopp, kein Zentrieren vorher.
         - Ketten blockiert / Festfahren vorne: zurück nach vorn (zur Startlage), BLOCKED = Wand hinten."""
-        self._wall_values = None
-        self.apply_settings()
-        self._begin("prüft vorne")
-        front = self.us.median("front")
+        values, front, source = self._start_values()
         stop_at = stop_distance_back(front, 0.0)
+        last_grid = stop_at
+        grid_hist: deque[float] = deque([] if stop_at is None else [stop_at], maxlen=config.FRONT_STOP_MEDIAN)
         stop_text = "Halt nach Abstand vorne" if stop_at is not None else "Halt nach Encoder"
         stop_at = stop_at or config.TILE_SIZE_CM
-        self.trace("rückwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm)
+        self.trace("rückwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm, vorne_quelle=source)
 
         l0, r0 = self.motors.positions()
         base = 0.0                              # schon gefahrene cm (positiv) vor l0/r0, nach dem Vorsetzen neu gesetzt
         steering = Steering(self.corridor_cm)
         heading = HeadingEstimate(-1)
         for side in ("left", "right"):
-            cm = self.us.measure(side)
+            cm = values[side] if values is not None else self.us.measure(side)
             steering.side(side, cm, base, (0.0, 0.0))
             self.trace("seite", seite=side, cm=cm, gefahren=base, richtung=-1, **steering.values())
         tries = 0
@@ -737,8 +825,11 @@ class RealRobot(RobotInterface):
                 travelled = distance()
                 if side == "front":
                     grid = stop_distance_back(cm, travelled)
-                    stop_at = grid or stop_at
-                    self.trace("vorne", cm=cm, gefahren=travelled, raster=grid, halt_bei=stop_at, richtung=-1)
+                    last_grid = grid
+                    if grid is not None:
+                        grid_hist.append(grid)
+                        stop_at = stop_median(grid_hist)
+                    self.trace("vorne", cm=cm, gefahren=travelled, raster=grid, halt_bei=stop_at, median=stop_at, richtung=-1)
                     if grid is not None and not slipping:
                         slipping = self._front_slips(front_hist, travelled, cm, -1)
                 else:
@@ -765,6 +856,7 @@ class RealRobot(RobotInterface):
                 heading = HeadingEstimate(-1)
                 heading.at = base
                 front_hist.clear()
+                grid_hist.clear()
                 slipping = False
                 for side in ("left", "right"):
                     cm = self.us.measure(side)
@@ -818,6 +910,8 @@ class RealRobot(RobotInterface):
         if fix:
             self.detail = f"dreht sich {abs(fix):.1f}° gerade"
             self._rotate(fix)
+        if last_grid is not None:
+            self._settle()
         floor = self._measure_floor()
         return MoveResult(MoveStatus.OK, floor)
 
@@ -941,6 +1035,7 @@ class RealRobot(RobotInterface):
     def _rotate(self, deg: float):
         """Auf der Stelle über die Encoder drehen, positiv = rechts."""
         self._wall_values = None
+        self._front_fresh = None
         if abs(deg) >= 45:
             self.rear_free_cm = None            # nach einer Drehung steht hinten etwas anderes
             self.front_free_cm = None
@@ -968,6 +1063,7 @@ class RealRobot(RobotInterface):
     def drive_cm(self, cm: float):
         """Gerade nach Encoder fahren (negativ = rückwärts), beide Ketten im Gleichlauf."""
         self._wall_values = None
+        self._front_fresh = None
         if cm < 0 and self.rear_free_cm is not None:
             self.rear_free_cm = max(0.0, self.rear_free_cm + cm)
         if self.front_free_cm is not None:

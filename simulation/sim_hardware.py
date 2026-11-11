@@ -17,7 +17,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable
 
 import config
-from hardware.color_sensor import COLOR_TO_TILE, ColorSensor
+from hardware.color_sensor import COLOR_TO_TILE, ColorSensor, build_calibration, features
 from hardware.robot import RealRobot
 from hardware.ultrasonic import SIDES, Ultrasonic
 from navigation.maze_map import Dir, Pos, TileType
@@ -349,6 +349,7 @@ class SimMotors:
 
 class SimUltrasonic:
     median = Ultrasonic.median          # gleiche Auswertung wie beim echten Sensor
+    median_fast = Ultrasonic.median_fast
     read_all = Ultrasonic.read_all
 
     def __init__(self, body: SimBody, clock: SimClock):
@@ -391,7 +392,12 @@ class SimColorSensor:
         self.body = body
         self.clock = clock
         self.integration_s = max(1, round(config.COLOR_INTEGRATION_MS / 2.4)) * 0.0024
-        self.calibration = dict(RAW)
+        white_c = RAW["white"][3]
+        stats = {}      # synthetische Streuung: 3 % der Merkmale (die Simulation misst ohne Fehler)
+        for name, raw in RAW.items():
+            f = features(raw, white_c)
+            stats[name] = {"mean": list(f), "std": [0.03 * x for x in f]}
+        self.calibration = build_calibration(RAW, stats)
         self.warning = None
         self.last_raw: tuple[int, int, int, int] | None = None
         self.last_color: str | None = None
