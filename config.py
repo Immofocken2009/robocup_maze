@@ -195,10 +195,14 @@ RED_MODE = "zuletzt"        # Standard, auf der Webseite vor jedem Lauf wählbar
 # --- Wegplanung (Kosten für Dijkstra) ----------------------------------------
 PLAN_COST_FORWARD = 1.0
 PLAN_COST_TURN = 1.0            # pro 90°-Drehung
+PLAN_COST_BACKWARD = 1.5        # eine Kachel rückwärts (nur auf besuchte Kacheln: der Farbsensor sitzt vorne); billiger als
+                                # Wenden (2 Drehungen) + vorwärts = 3, teurer als vorwärts (Vorgabe Projektinhaber 2026-11-11)
 PLAN_COST_BLUE_REVISIT = 50.0   # bereits besuchte blaue Kachel erneut befahren: stark meiden
 
 # --- Geschätzte Dauer der Aktionen (Sim-Zeit und Heimweg-Schätzung) ----------
 MOVE_TIME_S = 3.5           # eine Kachel vorwärts inkl. Messen (Fahrphysik: 3,2 s + Wände 0,6 s). MESSEN!
+MOVE_BACK_TIME_S = MOVE_TIME_S   # eine Kachel rückwärts: wie vorwärts geschätzt (kein Wände-Messen danach, dafür kein
+                            # Vorhalt am Ziel; gleiche Fahrstrecke und Tempo). MESSEN!
 TURN_TIME_S = 2.0           # eine 90°-Drehung (Fahrphysik: 1,9 s). MESSEN!
 BACKOFF_TIME_S = 2.0        # schwarze/rote Kachel erkannt, anhalten und zurück. MESSEN!
 

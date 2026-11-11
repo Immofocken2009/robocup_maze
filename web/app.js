@@ -791,6 +791,7 @@ const CALC_TITLES = {
   vorne: "Abstand vorne, Haltepunkt",
   farbe: "Farbprüfung beim Fahren",
   "vorwärts": "Start der Fahrt",
+  "rückwärts": "Start der Fahrt rückwärts",
   angekommen: "Angekommen",
   "schräglage": "Schrägstand am Kachelende",
   drehen: "Drehen",

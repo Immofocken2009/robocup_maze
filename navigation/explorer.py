@@ -146,24 +146,26 @@ class Explorer:
             elif action == "R":
                 self.robot.turn_right()
                 self.heading = self.heading.right()
-            elif not self._forward():
+            elif not self._forward(backward=action == "B"):
                 break
         self.planned = []
         self.on_update()
 
-    def _forward(self) -> bool:
-        """Eine Kachel vorwärts. True = Plan weiter abfahren."""
-        target = step(self.pos, self.heading)
+    def _forward(self, backward: bool = False) -> bool:
+        """Eine Kachel vorwärts, bei backward rückwärts (Blickrichtung bleibt, nur auf besuchte Kacheln geplant).
+        True = Plan weiter abfahren."""
+        way = self.heading.back() if backward else self.heading
+        target = step(self.pos, way)
         avoid = {TileType.BLACK} if self.enter_red else {TileType.BLACK, TileType.RED}
-        result = self.robot.forward(avoid)
+        result = self.robot.backward() if backward else self.robot.forward(avoid)
         self.trace("ergebnis", ziel=target, status=result.status.name,
-                   boden=result.floor.value if result.floor else None)
+                   boden=result.floor.value if result.floor else None, **({"rückwärts": True} if backward else {}))
 
         if result.status is MoveStatus.BLOCKED:
-            if self.maze.wall(self.pos, self.heading) is False:
+            if self.maze.wall(self.pos, way) is False:
                 self.contradictions += 1        # Karte sagte „offen“
-            self.maze.set_wall(self.pos, self.heading, True)
-            self._log(f"Unerwartete Wand bei {self.pos}, plane neu")
+            self.maze.set_wall(self.pos, way, True)
+            self._log(f"Unerwartete Wand {'hinten ' if backward else ''}bei {self.pos}, plane neu")
             return False
         if result.status is MoveStatus.AVOIDED:
             if not self.maze.mark_detected(target, result.floor):

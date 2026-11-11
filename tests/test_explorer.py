@@ -3,6 +3,7 @@ import unittest
 import config
 from navigation.explorer import START, Explorer
 from navigation.maze_map import Dir, TileType
+from navigation.robot_interface import MoveResult, MoveStatus
 from simulation.maze_generator import generate
 from simulation.sim_robot import SimRobot, SimWorld, list_mazes
 
@@ -99,6 +100,106 @@ class ExplorerTest(unittest.TestCase):
         robot, explorer = explore(world, robot_class=LyingRobot)
         self.assertEqual(visited_in_world(world, explorer), world.reachable_tiles())
         self.assertEqual(robot.pos, world.start)
+
+
+class BackwardTest(unittest.TestCase):
+    """Rückwärtsfahren statt Wenden (Aktion "B")."""
+
+    def dead_end_world(self) -> SimWorld:
+        """Start (0, 0) nach Norden, Gang von drei Kacheln mit Sackgasse oben (0, 2), dazu zwei Seitenarme nach Osten
+        ((1, 0) und (1, 1), je eine Kachel, Sackgasse)."""
+        tiles = [{"x": 0, "y": 0, "walls": "SW", "floor": "normal"},
+                 {"x": 0, "y": 1, "walls": "W", "floor": "normal"},
+                 {"x": 0, "y": 2, "walls": "NEW", "floor": "normal"},
+                 {"x": 1, "y": 1, "walls": "NSE", "floor": "normal"},
+                 {"x": 1, "y": 0, "walls": "SEN", "floor": "normal"}]
+        return SimWorld.from_dict({"width": 2, "height": 3, "start": [0, 0], "tiles": tiles})
+
+    def test_dead_end_explored_with_backward_actions(self):
+        world = self.dead_end_world()
+        plans = []
+        robot = SimRobot(world, time_limit_s=NO_LIMIT)
+        explorer = Explorer(robot, time_limit_s=NO_LIMIT,
+                            trace=lambda what, **v: plans.append(v["aktionen"]) if what == "plan" and v["aktionen"] else None)
+        explorer.run()
+        self.assertEqual(explorer.mode, "fertig")
+        self.assertEqual(visited_in_world(world, explorer), world.reachable_tiles())
+        self.assertEqual(robot.pos, world.start)
+        self.assertTrue(any("B" in p for p in plans), plans)
+
+    def test_saved_mazes_use_backward_and_finish(self):
+        total = 0
+        for name in list_mazes():
+            world = SimWorld.load(name)
+            plans = []
+            robot = SimRobot(world, time_limit_s=NO_LIMIT)
+            explorer = Explorer(robot, time_limit_s=NO_LIMIT,
+                                trace=lambda what, **v: plans.append(v["aktionen"]) if what == "plan" and v["aktionen"] else None)
+            explorer.run()
+            total += sum(p.count("B") for p in plans)
+            self.assertEqual(explorer.mode, "fertig", name)
+            self.assertEqual(robot.pos, world.start, name)
+            self.assertEqual(robot.lop, 0, name)
+        self.assertGreater(total, 0)
+
+    def test_blocked_backward_enters_wall_behind_and_replans(self):
+        class Lying(SimRobot):
+            """Das erste Rückwärtsfahren meldet BLOCKED, ohne zu fahren (Wand hinten)."""
+            lied = False
+
+            def backward(self):
+                if not self.lied:
+                    self.lied = True
+                    return MoveResult(MoveStatus.BLOCKED)
+                return super().backward()
+
+        robot = Lying(self.dead_end_world(), time_limit_s=NO_LIMIT)
+        explorer = Explorer(robot, time_limit_s=NO_LIMIT)
+        explorer.run()
+        self.assertTrue(robot.lied)
+        self.assertGreaterEqual(explorer.contradictions, 1)     # Karte sagte „offen“
+        self.assertTrue(any("hinten" in e for e in explorer.events), list(explorer.events))
+
+    def test_blocked_backward_writes_wall_behind(self):
+        class Blocks(SimRobot):
+            def backward(self):
+                return MoveResult(MoveStatus.BLOCKED)
+
+        explorer = Explorer(Blocks(self.dead_end_world(), time_limit_s=NO_LIMIT), time_limit_s=NO_LIMIT)
+        explorer.maze.mark_visited((0, 0), TileType.NORMAL)
+        explorer.maze.mark_visited((0, 1), TileType.NORMAL)
+        explorer.maze.set_wall((0, 1), Dir.S, False)
+        explorer.pos, explorer.heading = (0, 1), Dir.N
+        self.assertFalse(explorer._forward(backward=True))
+        self.assertIs(explorer.maze.wall((0, 1), Dir.S), True)      # hinten, nicht vorne
+        self.assertIsNone(explorer.maze.wall((0, 1), Dir.N))
+        self.assertEqual(explorer.pos, (0, 1))
+        self.assertEqual(explorer.contradictions, 1)
+
+    def test_backward_onto_blue_waits(self):
+        waits = []
+
+        class Recording(SimRobot):
+            def wait(self, seconds):
+                waits.append(seconds)
+                super().wait(seconds)
+
+        world = self.dead_end_world()
+        world.tiles[(0, 0)] = TileType.BLUE
+        robot = Recording(world, time_limit_s=NO_LIMIT)
+        explorer = Explorer(robot, time_limit_s=NO_LIMIT)
+        explorer.maze.mark_visited((0, 0), TileType.BLUE)
+        explorer.maze.mark_visited((0, 1), TileType.NORMAL)
+        explorer.maze.set_wall((0, 1), Dir.S, False)
+        explorer.pos, explorer.heading = (0, 1), Dir.N
+        robot.pos, robot.dir = (0, 1), Dir.N
+        self.assertTrue(explorer._forward(backward=True))
+        self.assertEqual(explorer.pos, (0, 0))
+        self.assertEqual(waits, [config.BLUE_WAIT_S])
+        self.assertEqual(robot.visits[(0, 0)], 2)
+
+    def test_time_estimate_counts_backward_like_forward(self):
+        self.assertEqual(config.MOVE_BACK_TIME_S, config.MOVE_TIME_S)
 
 
 class Interrupted(Exception):

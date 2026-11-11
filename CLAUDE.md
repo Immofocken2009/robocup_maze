@@ -154,6 +154,15 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   5. auf neuer Kachel Boden und Wände messen, eintragen
 - **Wegplanung:** Dijkstra über (Kachel, Blickrichtung). Kosten: geradeaus 1,
   90°-Drehung 1, blaue Kachel mit Aufschlag. Wege nur über besuchte Kacheln.
+- **Rückwärtsfahren statt Wenden** (entschieden 2026-11-11, Vorgabe Projektinhaber): Zusätzliche Kante „eine Kachel rückwärts“
+  (Aktion **"B"**; Blickrichtung bleibt, Position geht entgegen der Blickrichtung) mit Kosten `PLAN_COST_BACKWARD` (1,5; Wenden + vorwärts
+  = 3). **Nur auf bereits besuchte Kacheln** (der Farbsensor sitzt vorne: Schwarz/Rot hinter dem Roboter würde nicht erkannt; Sackgassen-
+  Rückwege sind immer besucht) und nur über eine bekannt offene Wand. Keine Obergrenze an Kacheln. Blaue Kachel rückwärts: derselbe
+  Aufschlag und dieselbe Wartezeit wie vorwärts. Grund: beim Wenden auf der Stelle streifen die Ecken die Wände (nur 1,2 cm Luft), das
+  kostete Orientierung; rückwärts spart außerdem ca. 4 s je Sackgasse. Schnittstelle: `RobotInterface.backward()` (gleiches Ergebnis
+  wie `forward`; BLOCKED = Wand hinten, der Explorer trägt sie hinten ein und plant neu). Zeitschätzung `MOVE_BACK_TIME_S` (= `MOVE_TIME_S`,
+  MESSEN). Kachelweiser `SimRobot.backward()` für die Tests. Die Sackgassen-Zentrierung beim Ankommen (`_center_before_turn` in
+  `read_walls`) bleibt, auch wenn danach nicht mehr gewendet wird.
 - **Sonderfälle:**
   - Schwarz: beim Fahren Boden prüfen → stoppen, zurück, als schwarz markieren, nie wieder einplanen
   - Blau: bei jedem Befahren warten (Wartezeit laut aktuellem Regelwerk)
@@ -378,6 +387,32 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   letzten 10 cm waren mindestens `STEER_CONTACT_SHARE` (0,8) der Messungen der Seite im Kontakt, mindestens 3 (ein Ausreißer setzte
   zweimal bei 8,9 von 10 cm alles zurück). Simulation (Drift, Rauschen, Schlupf, Kettenfaktor, 12 Seeds): „einfach“ 12/12,
   „sonderboeden“ 12/12 (vorher ebenso). Nicht auf dem echten Roboter geprüft.
+- **Rückwärtsfahren (`RealRobot.backward`)** (entschieden 2026-11-11, Vorgabe Projektinhaber, Planung/Schnittstelle siehe Erkundungsalgorithmus):
+  - **Halt:** Encoder-Strecke `TILE_SIZE_CM`; ist vorne eine Wand in Reichweite, über den **wachsenden Abstand vorne** ins Kachelraster
+    (`stop_distance_back`: Mitte bei `FRONT_CENTER_CM` + n · 30, die ca. eine Kachel weiter weg liegt als am Start, bei jeder Messung neu,
+    Encoder begrenzt Ausreißer wie vorwärts). Mit Kettenfaktor wie vorwärts (`_straight`, `_eff`). **Kein Farbsensor-Stopp**, kein Zentrieren davor.
+  - **Lenkung, Vorzeichen:** Die Ketten bekommen das Vorwärts-Kommando mal −1, `Steering` bekommt Strecke positiv und die Encoder mal −1
+    (Modus „encoder“ regelt wie vorwärts); P und D bleiben unverändert (Abweichung nach rechts → Uhrzeigersinn → rückwärts wandert er nach
+    links; D dämpft den Winkel). `HeadingEstimate(direction = −1)`: die Seitenabweichung wandert rückwärts um −sin(Schrägwinkel) je cm
+    (Drift und Ausgleichsgerade drehen das Vorzeichen), Drehwinkel aus den echten Encodern.
+    **Hebel gedreht:** Die Seitensensoren sitzen `US_SIDE_AHEAD_CM` vor der Drehmitte. Vorwärts dämpft das die Lenkung (wirkt wie ein
+    D-Anteil), rückwärts wäre es eine Mitkopplung (Eindrehen schiebt den Sensor in die falsche Richtung; Simulation: bis 16° Schrägstand
+    am Ende in der offenen Fläche). Darum rechnet `RealRobot._back_side` die Seitenwerte so um, als säßen die Sensoren um dasselbe Stück
+    hinter der Drehmitte (−2 · Hebel); `HeadingEstimate.sample` rechnet das für die Schrägstandschätzung zurück.
+  - **Schrägstand am Ende:** wie vorwärts aus den Seitenwänden; ohne Schätzung (eine Wand/Raum) dreht er seine eigene Lenkdrehung
+    (Encoder) zurück.
+  - **Blockiert:** Stillstand (`StallWatch`) → stromlos, zurück zur Startlage (`drive_cm` vorwärts), `MoveStatus.BLOCKED`
+    (Wand hinten), `rear_free_cm` = 0. **Festfahren** (`_front_slips` mit Richtung −1: der Abstand vorne wächst um weniger als
+    `FRONT_STUCK_RATIO` · Encoderstrecke über `FRONT_STUCK_DIST_CM`): `CONTACT_BACK_CM` vorsetzen, weiter, höchstens `CONTACT_MAX_TRIES`, dann
+    BLOCKED. Kein Seitenschleifen-Erkennen (die Sensoren sehen die hinteren Ecken nicht): nur Stillstand.
+  - **Rückraum / Zentrieren:** Nach dem Rückwärtsfahren ist `rear_free_cm` unbekannt (None), dafür gibt es `front_free_cm` (= gefahrene
+    Strecke, er kam von dort; Drehung ≥ 45°, Vorwärtsfahren löschen es). `_center_before_turn` zentriert damit seitlich auch schräg
+    nach VORNE (Trace `zentriert_vor_drehung` mit `vorwärts`), wenn hinten nichts bekannt ist, und fährt danach gerade zurück auf die
+    Kachelmitte. Ohne das streifte er in der Simulation nach Rückwärtsfahren an Wänden entlang öfter beim Drehen (offener Raum 12 → 8 von 12).
+  - **Aufzeichnung:** Trace `rückwärts` (Start) und `fahrt`/`seite`/`vorne`/`angekommen`/`schräglage` mit `richtung` = −1; die Anzeige
+    (`motion.forward_cm` negativ, Aktionstext „fährt rückwärts“) und `tools/replay_run.py` brauchen nichts Neues (keine neuen Hardware-Eingänge).
+  - **Nicht auf dem echten Roboter geprüft.** Bekannte Grenze: mit mehr als ca. 6° Schrägstand und über 2 cm Versatz zur nahen Wand
+    schwenkt die hintere Ecke an die Wand (ohne Sensor hinten nicht sichtbar), er kann sich dann verkeilen (Stillstand → BLOCKED).
 - **Reiter „Einstellungen“ (Lenkung)** (entschieden 2026-11-10, Vorgabe Projektinhaber): fünfter Reiter, stellt die Stärke der
   Lenkung beim Geradeausfahren ein: `STEER_KP` (Lenkstärke), `STEER_KD` (Dämpfung), `STEER_MAX_DPS` (größte Lenkung),
   `STEER_SLEW_DPS_PER_CM` (Lenkänderung); Liste, Bereiche und Hilfetexte in `config.STEER_SETTINGS`. Regler + Zahlenfeld,

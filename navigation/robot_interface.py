@@ -11,8 +11,8 @@ from navigation.maze_map import TileType
 
 
 class MoveStatus(Enum):
-    OK = "ok"            # eine Kachel vorwärts gefahren
-    BLOCKED = "blocked"  # Wand vorne, nicht gefahren
+    OK = "ok"            # eine Kachel gefahren (vorwärts bzw. rückwärts)
+    BLOCKED = "blocked"  # Wand vorne (rückwärts: hinten), nicht gefahren
     AVOIDED = "avoided"  # verbotene Kachel erkannt (z.B. schwarz), zurück auf die alte Kachel gefahren
 
 
@@ -35,6 +35,12 @@ class RobotInterface(ABC):
     def forward(self, avoid: set[TileType]) -> MoveResult:
         """Eine Kachel vorwärts fahren. Erkennt der Farbsensor vorne einen Boden aus
         `avoid`, hält der Roboter an und fährt zurück (MoveStatus.AVOIDED)."""
+
+    @abstractmethod
+    def backward(self) -> MoveResult:
+        """Eine Kachel rückwärts fahren (Blickrichtung bleibt). Nur auf eine schon besuchte Kachel: der Farbsensor sitzt
+        vorne und sieht den Boden hinter dem Roboter nicht. Wand hinten: MoveStatus.BLOCKED, der Roboter steht wieder
+        auf der alten Kachel."""
 
     @abstractmethod
     def turn_left(self):

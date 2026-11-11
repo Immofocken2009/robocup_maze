@@ -61,6 +61,20 @@ def stop_distance(front_cm: float | None, travelled: float) -> float | None:
     return max(config.TILE_SIZE_CM - tolerance, min(config.TILE_SIZE_CM + tolerance, stop))
 
 
+def stop_distance_back(front_cm: float | None, travelled: float) -> float | None:
+    """Wie `stop_distance`, aber rückwärts: der Abstand vorne WÄCHST mit der gefahrenen Strecke. Fahrstrecke (ab Start der
+    Fahrt), bei der der Roboter mittig auf der Kachel hinter ihm steht, aus einer Messung vorne nach `travelled` cm: die
+    Kachelmitte (Abstand vorne = FRONT_CENTER_CM + n · Kachellänge), die ca. eine Kachellänge weiter weg liegt als am Start.
+    None = keine Wand in Reichweite."""
+    if front_cm is None or front_cm > config.FRONT_TRUST_CM:
+        return None
+    reached = travelled + config.FRONT_CENTER_CM - front_cm    # Strecke bis zur Mitte der Kachel direkt vor der Wand (n = 0)
+    tiles = round((config.TILE_SIZE_CM - reached) / config.TILE_SIZE_CM)
+    stop = reached + tiles * config.TILE_SIZE_CM
+    tolerance = config.FORWARD_TOLERANCE_CM
+    return max(config.TILE_SIZE_CM - tolerance, min(config.TILE_SIZE_CM + tolerance, stop))
+
+
 def _clamp(value: float, limit: float) -> float:
     return max(-limit, min(limit, value))
 
@@ -241,7 +255,10 @@ class HeadingEstimate:
     Messung sofort um US_SIDE_AHEAD_CM · sin(Drehung); das wird ebenfalls abgezogen.
     """
 
-    def __init__(self):
+    def __init__(self, direction: int = 1):
+        # direction -1 = rückwärts: die Seitenabweichung wandert pro gefahrenem cm um −sin(Schrägwinkel) (Fahrt entgegen
+        # der Blickrichtung), `travelled` zählt immer die Strecke (positiv), der Winkel kommt aus den echten Encodern
+        self.direction = direction
         self.at = 0.0           # gefahrene cm beim letzten track()
         self.angle = 0.0        # Drehung seit dem Start laut Encoder (rad, positiv = nach rechts)
         self.drift = 0.0        # dadurch seitlich gewandert (cm)
@@ -249,13 +266,15 @@ class HeadingEstimate:
 
     def track(self, travelled: float, enc: tuple[float, float]):
         """Bei jedem Schleifendurchlauf: enc = Encodergrad seit dem Start."""
-        self.drift += math.sin(self.angle) * (travelled - self.at)
+        self.drift += self.direction * math.sin(self.angle) * (travelled - self.at)
         self.at = travelled
         self.angle = math.radians(90 * (enc[0] - enc[1]) / 2 / config.MOTOR_DEG_PER_90)
 
     def sample(self, offset: float):
         """Neue Abweichung, während beide Wände zählen."""
         lever = config.US_SIDE_AHEAD_CM * math.sin(self.angle)
+        if self.direction < 0:      # rückwärts steht im Offset schon −Hebel statt +Hebel (`RealRobot._back_side`): zurückrechnen
+            lever = -lever
         self.samples.append((self.at, offset - self.drift - lever))
 
     def degrees(self) -> float | None:
@@ -267,7 +286,7 @@ class HeadingEstimate:
         if max(s) - min(s) < config.HEADING_MIN_SPAN_CM:
             return None
         ms, my = sum(s) / len(s), sum(y) / len(y)
-        slope = sum((a - ms) * (b - my) for a, b in zip(s, y)) / sum((a - ms) ** 2 for a in s)
+        slope = self.direction * sum((a - ms) * (b - my) for a, b in zip(s, y)) / sum((a - ms) ** 2 for a in s)
         return math.degrees(math.asin(_clamp(slope, 1.0)) + self.angle)
 
 
@@ -361,6 +380,9 @@ class RealRobot(RobotInterface):
         # Freier Raum hinter dem Roboter (cm) fürs Zurücksetzen; kein Sensor hinten: nach einer Fahrt = gefahrene Strecke
         # (er kam von dort), nach einer Drehung None = unbekannt, nach Rückwärtsfahren um x cm entsprechend weniger
         self.rear_free_cm: float | None = None
+        # Freier Raum vor dem Roboter (cm), nur nach Rückwärtsfahren bekannt (er kam von dort, `backward`): damit kann er vor
+        # einer Drehung auch nach VORNE seitlich zentrieren, wenn hinten nichts bekannt ist. Sonst None = unbekannt.
+        self.front_free_cm: float | None = None
 
     # --- Steuerung durch main.py ------------------------------------------------
 
@@ -379,6 +401,7 @@ class RealRobot(RobotInterface):
         self.floor = None
         self.blind_streak = 0
         self.rear_free_cm = None
+        self.front_free_cm = None
         self.set_action("bereit")
 
     def interrupt(self, reason: str):
@@ -444,6 +467,7 @@ class RealRobot(RobotInterface):
         wieder gerade dreht. Die Entscheidung steht in `centering_plan`."""
         front, left, right = values["front"], values["left"], values["right"]
         back, side = centering_plan(front, left, right, dead_end)
+        wants_back = back > 0
         rear = self._rear_room(front)
         back = min(back, rear)
         angle = dist = 0.0
@@ -452,26 +476,42 @@ class RealRobot(RobotInterface):
             dist = min(abs(side) / math.sin(math.radians(angle)), config.DEAD_END_MAX_BACK_CM, rear)
             if dist * math.sin(math.radians(angle)) < config.DEAD_END_SIDE_MIN_CM - 1e-9:
                 angle = dist = 0.0                              # hinten zu wenig Platz: Seitenkorrektur würde nichts bringen
-        extra = max(0.0, back - dist * math.cos(math.radians(angle)))   # reicht der schräge Weg nicht nach hinten
+        ahead = False
+        if side and not dist and not wants_back and not dead_end and self.front_free_cm is not None:
+            # hinten nichts bekannt (z.B. nach Rückwärtsfahren), vorne frei: schräg nach VORNE statt zurück
+            room = self.front_free_cm if front is None else min(self.front_free_cm, front - config.TURN_FRONT_MIN_CM)
+            dist = min(abs(side) / math.sin(math.radians(config.DEAD_END_ANGLE_DEG)), config.DEAD_END_MAX_BACK_CM,
+                       max(0.0, room - config.REAR_MARGIN_CM))
+            if dist * math.sin(math.radians(config.DEAD_END_ANGLE_DEG)) >= config.DEAD_END_SIDE_MIN_CM - 1e-9:
+                angle, ahead = config.DEAD_END_ANGLE_DEG, True
+            else:
+                dist = 0.0
+        extra = max(0.0, back - dist * math.cos(math.radians(angle))) if not ahead else 0.0   # reicht der schräge Weg nicht nach hinten
         if dead_end:
             self.trace("sackgasse", vorne=front, seite=side, zurück=back, winkel=angle, strecke=dist, gerade=extra,
                        rueckraum=rear)
         elif dist or extra >= 0.5:
             self.trace("zentriert_vor_drehung", vorne=front, links=left, rechts=right, seite=side, zurück=back,
-                       winkel=angle, strecke=dist, gerade=extra, rueckraum=rear)
+                       winkel=angle, strecke=dist, gerade=extra, rueckraum=rear, **({"vorwärts": True} if ahead else {}))
         if dist == 0.0 and extra < 0.5:
             return
         self.set_action("setzt in der Sackgasse zurück" if dead_end else "Zentriert vor Drehung",
                         f"{max(dist, extra):.0f} cm")
         self._wall_values = None
-        if angle:
+        if angle and ahead:
+            turn = -angle if side > 0 else angle                # nach links schieben, vorwärts = erst nach links drehen
+            self._rotate(turn)
+            self.drive_cm(dist)
+            self._rotate(-turn)
+            self.drive_cm(-dist * math.cos(math.radians(angle)))    # wieder gerade zurück auf die Kachelmitte (der Raum ist frei)
+        elif angle:
             turn = angle if side > 0 else -angle                # nach links schieben = erst nach rechts drehen
             self._rotate(turn)
             self.drive_cm(-dist)
             self._rotate(-turn)
         if extra >= 0.5:
             self.drive_cm(-extra)
-        elif not dead_end and (forward := dist * math.cos(math.radians(angle)) - back) >= 0.5:
+        elif not dead_end and not ahead and (forward := dist * math.cos(math.radians(angle)) - back) >= 0.5:
             self.drive_cm(forward)          # nur seitlich nötig: wieder vor, sonst steht er nach dem Drehen versetzt
 
     def _rear_room(self, front: float | None) -> float:
@@ -632,6 +672,7 @@ class RealRobot(RobotInterface):
         l, r = self.encoders
         heading.track(base + self._travelled(l0, r0), self._eff(l0, r0))
         self.rear_free_cm = max(0.0, min(base + self._travelled(l0, r0), config.TILE_SIZE_CM))   # er kam von dort
+        self.front_free_cm = None
         skew = heading.degrees()
         fix = 0.0
         if skew is not None and abs(skew) >= config.HEADING_FIX_MIN_DEG:
@@ -644,14 +685,172 @@ class RealRobot(RobotInterface):
         floor = self._measure_floor()
         return MoveResult(MoveStatus.OK, floor)
 
-    def _front_slips(self, hist: deque, travelled: float, cm: float | None) -> bool:
+    def backward(self) -> MoveResult:
+        """Eine Kachel rückwärts (Blickrichtung bleibt), nur auf eine besuchte Kachel (Farbsensor sitzt vorne).
+
+        Vorzeichen (alles gegen die Fahrtrichtung `direction` = −1 geprüft, Rechnung im Kopf der Entscheidung 2026-11-11):
+        - Die Ketten bekommen das Vorwärts-Kommando mal −1: (−(Tempo − k), −(Tempo + k)). k > 0 (Abweichung nach rechts)
+          dreht die Blickrichtung im Uhrzeigersinn, rückwärts wandert der Roboter dabei nach links: das Eindrehen wirkt
+          wie vorwärts gegen die Abweichung. P und D der `Steering` bleiben unverändert: die Abweichung (links − rechts) / 2
+          und ihre Änderung pro gefahrenem cm (positiv = driftet nach rechts, rückwärts = −sin Schrägwinkel) zeigen
+          beide in die richtige Richtung (D dämpft den Winkel: Schräg nach rechts rückwärts = Abweichung sinkt → k < 0).
+        - `Steering` bekommt die Encoder mal −1 (Strecke zählt positiv, Modus „encoder“ regelt dann wie vorwärts),
+          `HeadingEstimate` die echten Encoder (Drehwinkel im Uhrzeigersinn) und direction = −1 (Abweichung wandert
+          rückwärts um −sin Winkel).
+        - Hebel der Seitensensoren (sitzen US_SIDE_AHEAD_CM vor der Drehmitte): vorwärts dämpft er die Lenkung (Eindrehen
+          nach links schiebt den Sensor sofort nach links: wirkt wie ein D-Anteil), rückwärts wäre es eine Mitkopplung
+          (Eindrehen im Uhrzeigersinn schiebt den Sensor nach rechts, der Regler sähe noch mehr Abweichung: P-Regler ohne
+          Dämpfung, Simulation: bis 16° Schrägstand am Ende). Darum die Seitenwerte für `Steering` so umrechnen, als säßen
+          die Sensoren um dasselbe Stück HINTER der Drehmitte (`_back_side`: −2 · Hebel statt +Hebel).
+        - Halt: Fahrstrecke TILE_SIZE_CM, bei Wand vorne in Reichweite nach dem wachsenden Abstand vorne ins Raster
+          (`stop_distance_back`). Kein Farbsensor-Stopp, kein Zentrieren vorher.
+        - Ketten blockiert / Festfahren vorne: zurück nach vorn (zur Startlage), BLOCKED = Wand hinten."""
+        self._wall_values = None
+        self.apply_settings()
+        self._begin("prüft vorne")
+        front = self.us.median("front")
+        stop_at = stop_distance_back(front, 0.0)
+        stop_text = "Halt nach Abstand vorne" if stop_at is not None else "Halt nach Encoder"
+        stop_at = stop_at or config.TILE_SIZE_CM
+        self.trace("rückwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm)
+
+        l0, r0 = self.motors.positions()
+        base = 0.0                              # schon gefahrene cm (positiv) vor l0/r0, nach dem Vorsetzen neu gesetzt
+        steering = Steering(self.corridor_cm)
+        heading = HeadingEstimate(-1)
+        for side in ("left", "right"):
+            cm = self.us.measure(side)
+            steering.side(side, cm, base, (0.0, 0.0))
+            self.trace("seite", seite=side, cm=cm, gefahren=base, richtung=-1, **steering.values())
+        tries = 0
+        front_hist: deque[tuple[float, float]] = deque()
+        slipping = False
+        self.set_action("fährt rückwärts", f"{stop_text}, {STEER_TEXT[steering.mode]}")
+        order = cycle(("front", "left", "front", "right"))
+        corr, mode = 0.0, steering.mode
+        stall = StallWatch(self.clock)
+
+        def distance() -> float:
+            return base - self._travelled(l0, r0)       # gefahrene Strecke, positiv
+
+        def enc() -> tuple[float, float]:
+            el, er = self._eff(l0, r0)
+            return -el, -er                             # für `Steering`: wie vorwärts gezählt
+
+        while True:
+            self._check()
+            travelled = distance()
+            el, er = self._eff(l0, r0)
+            heading.track(travelled, (el, er))
+
+            if self.us.ready():
+                side = next(order)
+                cm = self.us.measure(side)
+                travelled = distance()
+                if side == "front":
+                    grid = stop_distance_back(cm, travelled)
+                    stop_at = grid or stop_at
+                    self.trace("vorne", cm=cm, gefahren=travelled, raster=grid, halt_bei=stop_at, richtung=-1)
+                    if grid is not None and not slipping:
+                        slipping = self._front_slips(front_hist, travelled, cm, -1)
+                else:
+                    el, er = self._eff(l0, r0)
+                    heading.track(travelled, (el, er))
+                    corr = steering.side(side, self._back_side(side, cm, heading.angle), travelled, enc())
+                    if steering.mode == "both":
+                        heading.sample(steering.offset)
+                    self.trace("seite", seite=side, cm=cm, gefahren=travelled, schräg_proben=len(heading.samples),
+                               richtung=-1, **steering.values())
+
+            # Rutscht er (Abstand vorne wächst viel weniger als die Encoderstrecke): vorsetzen, weiter; sonst wie blockiert
+            if slipping and tries < config.CONTACT_MAX_TRIES:
+                tries += 1
+                self.motors.float()
+                self.trace("rutscht_zurück", gefahren=travelled, versuch=tries)
+                self.set_action("Rutscht hinten", "setzt vor")
+                self.drive_cm(config.CONTACT_BACK_CM)
+                base = distance()
+                l0, r0 = self.encoders
+                corridor = steering.corridor
+                steering = Steering(corridor)
+                steering.corr_at = base
+                heading = HeadingEstimate(-1)
+                heading.at = base
+                front_hist.clear()
+                slipping = False
+                for side in ("left", "right"):
+                    cm = self.us.measure(side)
+                    steering.side(side, cm, base, (0.0, 0.0))
+                    self.trace("seite", seite=side, cm=cm, gefahren=base, richtung=-1, **steering.values())
+                corr, mode = 0.0, steering.mode
+                stall = StallWatch(self.clock)
+                self.set_action("fährt rückwärts", f"{stop_text}, {STEER_TEXT[steering.mode]}")
+                continue
+
+            if stall.stalled(self.encoders) or slipping:
+                self.motors.float()
+                self.trace("blockiert", gefahren=travelled, encoder=self.encoders, richtung=-1)
+                self.set_action("Ketten blockiert", "fährt wieder vor")
+                self.drive_cm(distance())
+                self.rear_free_cm = 0.0         # Wand hinten
+                return MoveResult(MoveStatus.BLOCKED)
+
+            remaining = stop_at - travelled
+            if remaining <= 0:
+                self.trace("angekommen", gefahren=travelled, halt_bei=stop_at, richtung=-1)
+                break
+            speed = config.DRIVE_SPEED_DPS
+            corr = steering.hold(travelled, enc())
+            self.trace("fahrt", gefahren=travelled, halt_bei=stop_at, rest=remaining, tempo=speed,
+                       korrektur=corr, modus=steering.mode, links_dps=-(speed - corr),
+                       rechts_dps=-(speed + corr) * config.MOTOR_TRIM_RIGHT, richtung=-1)
+            if steering.mode != mode:
+                mode = steering.mode
+                self.detail = f"{stop_text}, {STEER_TEXT[mode]}"
+            self.motors.set_dps(*self._straight(-(speed - corr), -(speed + corr)))
+            self.motion = {"forward_cm": -round(travelled, 1)}
+            self.on_change()
+            self.clock.sleep(LOOP_S)
+
+        self.motors.float()
+        self.corridor_cm = steering.corridor
+        heading.track(distance(), self._eff(l0, r0))
+        self.rear_free_cm = None        # kein Sensor hinten: unbekannt (Rückraum wird aus dem Abstand vorne geschätzt)
+        self.front_free_cm = max(0.0, min(distance(), config.TILE_SIZE_CM))   # er kam von dort
+        skew = heading.degrees()
+        if skew is None:
+            # Kein Schrägstand aus zwei Wänden schätzbar (Raum, eine Wand): wenigstens die eigene Lenkdrehung zurücknehmen
+            # (rückwärts ohne Dämpfung, Simulation: Lenkung dreht ihn in der offenen Fläche bis ca. 4° weiter)
+            skew = math.degrees(heading.angle)
+        fix = 0.0
+        if abs(skew) >= config.HEADING_FIX_MIN_DEG:
+            fix = -_clamp(skew, config.HEADING_FIX_MAX_DEG)
+        self.trace("schräglage", proben=len(heading.samples), geschätzt=skew,
+                   encoder_drehung=math.degrees(heading.angle), dreht=fix, richtung=-1)
+        if fix:
+            self.detail = f"dreht sich {abs(fix):.1f}° gerade"
+            self._rotate(fix)
+        floor = self._measure_floor()
+        return MoveResult(MoveStatus.OK, floor)
+
+    @staticmethod
+    def _back_side(side: str, cm: float | None, angle: float) -> float | None:
+        """Seitenwert für die Lenkung beim Rückwärtsfahren: der Hebel der Sensoren (cm, positiv wenn der Sensor durch die
+        Drehung seit dem Start nach rechts rückt: links +, rechts −) wird doppelt abgezogen, so dass er wie hinter der
+        Drehmitte sitzend wirkt (siehe `backward`). angle in rad, positiv = im Uhrzeigersinn gedreht."""
+        if cm is None:
+            return None
+        shift = 2 * config.US_SIDE_AHEAD_CM * math.sin(angle)
+        return max(0.0, cm - shift if side == "left" else cm + shift)
+
+    def _front_slips(self, hist: deque, travelled: float, cm: float | None, direction: int = 1) -> bool:
         """Festfahren vorne: sinkt der Abstand vorne über die letzten FRONT_STUCK_DIST_CM cm Encoderstrecke um weniger
         als FRONT_STUCK_RATIO · Strecke, drehen die Ketten durch (Läufe 2026-11-11: 22 cm Encoder, 9,5 cm weniger Abstand).
         hist = (gefahrene cm, Abstand vorne) der Messungen mit Wand in Reichweite. Steigt der Wert (anderes Echo,
-        Wandkante), beginnt das Fenster neu."""
+        Wandkante), beginnt das Fenster neu. direction -1 = rückwärts: der Abstand wächst statt zu sinken, Vorzeichen gedreht."""
         if cm is None:
             return False
-        if hist and cm > hist[-1][1] + config.STEER_STEADY_CM:
+        if hist and direction * (cm - hist[-1][1]) > config.STEER_STEADY_CM:
             hist.clear()
         hist.append((travelled, cm))
         while len(hist) > 1 and travelled - hist[1][0] >= config.FRONT_STUCK_DIST_CM:
@@ -659,7 +858,7 @@ class RealRobot(RobotInterface):
         span = travelled - hist[0][0]
         if span < config.FRONT_STUCK_DIST_CM:
             return False
-        drop = hist[0][1] - cm
+        drop = direction * (hist[0][1] - cm)
         if drop >= config.FRONT_STUCK_RATIO * span:
             return False
         self.trace("rutscht", erwartet=span, gemessen=drop, strecke=span, gefahren=travelled, vorne=cm)
@@ -756,6 +955,7 @@ class RealRobot(RobotInterface):
         self._wall_values = None
         if abs(deg) >= 45:
             self.rear_free_cm = None            # nach einer Drehung steht hinten etwas anderes
+            self.front_free_cm = None
         direction = 1 if deg > 0 else -1
         target = abs(deg) / 90 * config.MOTOR_DEG_PER_90
         l0, r0 = self.motors.positions()
@@ -782,6 +982,8 @@ class RealRobot(RobotInterface):
         self._wall_values = None
         if cm < 0 and self.rear_free_cm is not None:
             self.rear_free_cm = max(0.0, self.rear_free_cm + cm)
+        if self.front_free_cm is not None:
+            self.front_free_cm = max(0.0, self.front_free_cm + cm)
         direction = 1 if cm >= 0 else -1
         l0, r0 = self.motors.positions()
         stall = StallWatch(self.clock)

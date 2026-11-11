@@ -1,6 +1,7 @@
 """Wegplanung: Dijkstra über (Kachel, Blickrichtung).
 
-Ergebnis ist eine Liste von Aktionen: "F" (vorwärts), "L" (links drehen), "R" (rechts drehen).
+Ergebnis ist eine Liste von Aktionen: "F" (vorwärts), "B" (rückwärts, Blickrichtung bleibt),
+"L" (links drehen), "R" (rechts drehen).
 """
 import heapq
 import itertools
@@ -47,6 +48,14 @@ def _moves(maze: MazeMap, pos: Pos, heading: Dir, targets: set[Pos]):
             if maze.kind(nxt) is TileType.BLUE:   # blau ist nur bekannt, wenn schon besucht
                 cost += config.PLAN_COST_BLUE_REVISIT
             yield "F", (nxt, heading), cost
+    # Rückwärts nur auf eine besuchte Kachel: der Farbsensor sitzt vorne, Schwarz/Rot hinter dem Roboter würde nicht erkannt.
+    if maze.is_passable(pos, heading.back()):
+        back = step(pos, heading.back())
+        if back in maze.visited:
+            cost = config.PLAN_COST_BACKWARD
+            if maze.kind(back) is TileType.BLUE:
+                cost += config.PLAN_COST_BLUE_REVISIT
+            yield "B", (back, heading), cost
     yield "L", (pos, heading.left()), config.PLAN_COST_TURN
     yield "R", (pos, heading.right()), config.PLAN_COST_TURN
 
@@ -66,6 +75,8 @@ def follow(pos: Pos, heading: Dir, actions: list[str]) -> list[State]:
     for a in actions:
         if a == "F":
             pos = step(pos, heading)
+        elif a == "B":
+            pos = step(pos, heading.back())
         elif a == "L":
             heading = heading.left()
         else:
@@ -80,6 +91,10 @@ def estimate_time(maze: MazeMap, pos: Pos, heading: Dir, actions: list[str]) -> 
     for a, (p, _) in zip(actions, follow(pos, heading, actions)[1:]):
         if a == "F":
             total += config.MOVE_TIME_S
+            if maze.kind(p) is TileType.BLUE:
+                total += config.BLUE_WAIT_S
+        elif a == "B":
+            total += config.MOVE_BACK_TIME_S
             if maze.kind(p) is TileType.BLUE:
                 total += config.BLUE_WAIT_S
         else:

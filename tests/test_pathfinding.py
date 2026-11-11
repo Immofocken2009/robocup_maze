@@ -49,6 +49,45 @@ class PlanPathTest(unittest.TestCase):
         actions = plan_path(m, (0, 0), Dir.E, {(2, 0)})
         self.assertNotEqual(actions, ["F", "F"])
 
+    def test_dead_end_one_tile_deep_goes_backward(self):
+        """Sackgasse eine Kachel tief (besucht): zurück ist "B" (1,5) statt Wenden + vorwärts (3)."""
+        m = corridor(2)                     # (0, 0) und (0, 1) besucht, (0, 1) hat vorne Wand
+        m.set_wall((0, 1), Dir.N, True)
+        m.set_wall((0, 0), Dir.S, False)    # hinter dem Start liegt eine (unbesuchte) Zielkachel
+        self.assertEqual(plan_path(m, (0, 1), Dir.N, {(0, 0)}), ["B"])
+        self.assertEqual(config.PLAN_COST_BACKWARD, 1.5)
+
+    def test_dead_end_two_tiles_deep_is_bb(self):
+        m = corridor(3)
+        m.set_wall((0, 2), Dir.N, True)
+        self.assertEqual(plan_path(m, (0, 2), Dir.N, {(0, 0)}), ["B", "B"])
+
+    def test_not_backward_onto_unvisited_tile(self):
+        """Hinter dem Roboter liegt eine unbesuchte Kachel (Farbsensor sitzt vorne, Schwarz würde nicht erkannt):
+        nicht rückwärts planen, sondern wenden und vorwärts."""
+        m = corridor(1)
+        m.set_wall((0, 0), Dir.S, False)    # offen, aber (0, -1) unbesucht
+        actions = plan_path(m, (0, 0), Dir.N, {(0, -1)})
+        self.assertNotIn("B", actions)
+        self.assertEqual(actions.count("F"), 1)
+        self.assertEqual(len(actions), 3)       # zwei Drehungen + vorwärts
+
+    def test_backward_needs_open_wall(self):
+        m = corridor(2)
+        m.set_wall((0, 0), Dir.N, True)     # Wand zwischen (0, 0) und (0, 1)
+        self.assertIsNone(plan_path(m, (0, 1), Dir.N, {(0, 0)}))
+
+    def test_backward_over_blue_costs_like_forward(self):
+        m = corridor(2)
+        m.mark_visited((0, 0), TileType.BLUE)
+        m.set_wall((0, 1), Dir.N, True)
+        self.assertEqual(plan_path(m, (0, 1), Dir.N, {(0, 0)}), ["B"])   # einziger Weg (hier sonst nur Drehen)
+        self.assertEqual(estimate_time(m, (0, 1), Dir.N, ["B"]), config.MOVE_BACK_TIME_S + config.BLUE_WAIT_S)
+
+    def test_follow_backward(self):
+        from navigation.pathfinding import follow
+        self.assertEqual(follow((0, 2), Dir.N, ["B", "B"]), [((0, 2), Dir.N), ((0, 1), Dir.N), ((0, 0), Dir.N)])
+
     def test_estimate_time(self):
         m = corridor(2)
         expected = 2 * config.MOVE_TIME_S + 2 * config.TURN_TIME_S

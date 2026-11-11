@@ -74,10 +74,20 @@ class RunLogTest(unittest.TestCase):
                          "us.measure", "us.ready", "color.read_raw"} <= sources)
         calcs = {r["what"] for r in records if r["k"] == "calc"}
         self.assertTrue({"seite", "fahrt", "vorne", "drehen", "schräglage", "plan", "zeit", "wände"} <= calcs)
+        self.assertIn("rückwärts", calcs)       # der Lauf enthält eine Rückwärtsfahrt (Aktion "B")
 
     def test_replay_is_identical(self):
         record(self.path)
         same, report = replay_run(read_run(self.path)[0])
+        self.assertTrue(same, report)
+
+    def test_replay_of_backward_drive_is_identical(self):
+        """Eine Aufzeichnung mit Rückwärtsfahrten (Trace `rückwärts`, `fahrt` mit richtung) rechnet sich 1:1 nach."""
+        record(self.path, seed=2)
+        records = read_run(self.path)[0]
+        backs = [r for r in records if r["k"] == "calc" and r.get("what") == "fahrt" and r.get("richtung") == -1]
+        self.assertTrue(backs)
+        same, report = replay_run(records)
         self.assertTrue(same, report)
 
     def test_replay_with_web_settings(self):

@@ -152,6 +152,108 @@ class DrivingTest(unittest.TestCase):
                 self.assertLess(abs(hw.body.x - 0.5 * TILE), 4.0)
 
 
+class BackwardDrivingTest(unittest.TestCase):
+    """Rückwärtsfahren (RealRobot.backward) in der Fahrphysik."""
+
+    def setup(self, world: SimWorld, x=None, y=None, heading=0.0, slip=False, noise=False, seed=0):
+        hw = SimHardware(world, noise=noise, slip=slip)
+        hw.body.rng = random.Random(seed)
+        hw.ultrasonic.rng = random.Random(seed + 1000)
+        if x is not None:
+            hw.body.x = x
+        if y is not None:
+            hw.body.y = y
+        hw.body.heading = heading
+        robot = SimDrivingRobot(hw)
+        robot.start_clock()
+        return hw, robot
+
+    def test_off_center_and_skewed_arrives_on_tile_center(self):
+        """1,5 cm außermittig und 3° schräg (Kettenfaktor 1/(1 − 0,043), Rauschen, Schlupf): kommt an der Mitte der
+        Kachel hinter ihm an, ohne Kollision und ohne Abbruch."""
+        trim = 1 / (1 - 0.043)
+        for off, ang in ((1.5, 3.0), (-1.5, 3.0), (1.5, -3.0), (-1.5, -3.0)):
+            with self.subTest(off=off, ang=ang), mock.patch.object(config, "MOTOR_TRIM_RIGHT", trim):
+                hw, robot = self.setup(corridor(4), x=0.5 * TILE + off, y=2.5 * TILE, heading=ang, slip=True, noise=True)
+                result = robot.backward()
+                self.assertIs(result.status, MoveStatus.OK)
+                self.assertAlmostEqual(hw.body.y, 1.5 * TILE, delta=3.0)
+                self.assertAlmostEqual(hw.body.x, 0.5 * TILE, delta=3.0)
+                self.assertLess(abs(hw.body.heading), 4.0)
+                self.assertEqual(hw.body.lop, 0)
+                self.assertEqual(hw.body.tile, (0, 1))
+
+    def test_noise_free_in_corridor_is_exact(self):
+        hw, robot = self.setup(corridor(4), y=2.5 * TILE)
+        self.assertIs(robot.backward().status, MoveStatus.OK)
+        self.assertAlmostEqual(hw.body.y, 1.5 * TILE, delta=1.0)
+        self.assertLess(hw.body.heading, 1.5)
+
+    def test_stops_by_front_distance_not_by_encoder(self):
+        """Wand vorne in Reichweite: der Halt folgt dem wachsenden Abstand vorne. Mit starkem Schlupf (Encoder zählen
+        13 % mehr als er fährt) hält er trotzdem auf der Kachelmitte, nach Encoder allein käme er zu kurz."""
+        with mock.patch("simulation.sim_hardware.DRIVE_SLIP", 0.25):
+            hw, robot = self.setup(corridor(4), y=2.5 * TILE, slip=True)
+            seen = []
+            robot.trace = lambda what, **v: seen.append(v) if what == "rückwärts" else None
+            robot.backward()
+            self.assertEqual(seen[0]["halt_nach"], "Halt nach Abstand vorne")
+            by_front = hw.body.y
+            self.assertAlmostEqual(by_front, 1.5 * TILE, delta=2.5)
+            # Zum Vergleich ohne Wand in Reichweite (nur Encoder): bleibt wegen des Schlupfs kürzer
+            with mock.patch.object(config, "FRONT_TRUST_CM", 1.0):
+                hw2, robot2 = self.setup(corridor(4), y=2.5 * TILE, slip=True)
+                robot2.backward()
+            self.assertGreater(hw2.body.y, by_front + 3.0)          # weiter vorn = zu kurz zurückgefahren
+
+    def test_front_stop_distance_back_formula(self):
+        from hardware.robot import stop_distance, stop_distance_back
+        # Mitte einer Kachel, Wand vorne in der eigenen Kachel (FRONT_CENTER_CM): eine Kachel zurück = 30 cm
+        self.assertAlmostEqual(stop_distance_back(config.FRONT_CENTER_CM, 0.0), TILE)
+        # nach 10 cm ist der Abstand um 10 größer: Haltepunkt bleibt bei 30
+        self.assertAlmostEqual(stop_distance_back(config.FRONT_CENTER_CM + 10, 10.0), TILE)
+        # mehrere Kacheln bis zur Wand: die Mitte einer Kachel, die eine Kachellänge weiter weg liegt
+        self.assertAlmostEqual(stop_distance_back(config.FRONT_CENTER_CM + 2 * TILE, 0.0), TILE)
+        # ohne Wand in Reichweite: keine Aussage
+        self.assertIsNone(stop_distance_back(None, 0.0))
+        self.assertIsNone(stop_distance_back(config.FRONT_TRUST_CM + 1, 0.0))
+        # Gegenstück vorwärts
+        self.assertAlmostEqual(stop_distance(config.FRONT_CENTER_CM + TILE, 0.0), TILE)
+
+    def test_backward_into_wall_is_blocked_and_returns(self):
+        """Die Karte irrt: hinter dem Roboter ist eine Wand. Ketten blockiert, er fährt zur Startlage zurück (vorwärts),
+        Status BLOCKED (der Explorer trägt die Wand hinten ein)."""
+        hw, robot = self.setup(corridor(3), y=0.5 * TILE)       # unterste Kachel: hinten Randwand
+        result = robot.backward()
+        self.assertIs(result.status, MoveStatus.BLOCKED)
+        self.assertAlmostEqual(hw.body.y, 0.5 * TILE, delta=3.0)
+        self.assertEqual(hw.body.lop, 0)
+        self.assertLess(robot.time(), config.TIME_LIMIT_S)
+
+    def test_arrival_counts_as_visit(self):
+        hw, robot = self.setup(corridor(3, {1: "blue"}), y=2.5 * TILE)
+        robot.backward()
+        self.assertEqual(hw.body.tile, (0, 1))
+        self.assertEqual(hw.body.visits[(0, 1)], 1)
+
+    def test_explorer_dead_end_without_turning_around(self):
+        """Sackgasse oben, Start unten: der Heimweg ist rückwärts, der Roboter wendet nie."""
+        turns = []
+        world = corridor(3)
+        hw = SimHardware(world)
+        robot = SimDrivingRobot(hw)
+        for name in ("turn_left", "turn_right"):
+            orig = getattr(robot, name)
+            setattr(robot, name, lambda n=name, o=orig: (turns.append(n), o())[1])
+        explorer = Explorer(robot)
+        robot.start_clock()
+        explorer.run()
+        self.assertEqual(explorer.mode, "fertig")
+        self.assertEqual(hw.body.tile, (0, 0))
+        self.assertEqual(turns, ["turn_right", "turn_left"])    # nur die Messdrehung am Start und zurück, kein Wenden
+        self.assertEqual(hw.body.lop, 0)
+
+
 class ExploreTest(unittest.TestCase):
     def check(self, world: SimWorld, hw: SimHardware, explorer: Explorer):
         visited = {world.to_world(p) for p in explorer.maze.visited}
@@ -286,6 +388,24 @@ class TurnCenteringTest(unittest.TestCase):
         hw, robot = self.setup(tiles, 2, -2.7, 4.0)             # Ecke links: Wand links 2,3 cm von der Mitte weg gerückt
         robot.turn_left()
         self.assertAlmostEqual(hw.body.heading % 360, 270.0, delta=4.0)
+
+    def test_after_backward_centres_forward_when_rear_unknown(self):
+        """Nach dem Rückwärtsfahren ist hinten nichts bekannt (`rear_free_cm` None), vorne ist frei: der Roboter steht 2,7 cm
+        zu nah an der Wand und zentriert schräg nach VORNE (Trace `vorwärts`), statt mit der Ecke zu streifen."""
+        tiles = [{"x": x, "y": y, "walls": "S" if y == 0 else "", "floor": "normal"} for x in range(3) for y in range(3)]
+        world = SimWorld.from_dict({"width": 3, "height": 3, "start": [1, 0], "tiles": tiles})
+        hw = SimHardware(world)
+        robot = SimDrivingRobot(hw)
+        robot.start_clock()
+        hw.body.heading = 90.0                                   # nach Osten, Südwand rechts
+        hw.body.x, hw.body.y = 1.5 * TILE, 0.5 * TILE - 2.7      # 2,7 cm zu nah an der Südwand
+        robot.rear_free_cm, robot.front_free_cm = None, TILE
+        seen = []
+        robot.trace = lambda what, **v: seen.append(v) if what == "zentriert_vor_drehung" else None
+        robot.turn_left()
+        self.assertEqual(seen and seen[0].get("vorwärts"), True)
+        self.assertLess(abs((hw.body.heading + 180) % 360 - 180), 4.0)      # nach links gedreht: Norden
+        self.assertGreater(hw.body.y, 0.5 * TILE - 1.5)          # näher an der Mitte als vorher
 
     def test_open_area_does_not_centre(self):
         hw = SimHardware(SimWorld.from_dict({"width": 3, "height": 3, "start": [1, 1],

@@ -256,6 +256,21 @@ class SimRobot(RobotInterface):
         self._after("vorwärts", config.MOVE_TIME_S)
         return MoveResult(MoveStatus.OK, floor)
 
+    def backward(self) -> MoveResult:
+        self._before()
+        if self.world.wall(self.pos, self.dir.back()):
+            self._after("Wand hinten", 0.0)
+            return MoveResult(MoveStatus.BLOCKED)
+        nxt = step(self.pos, self.dir.back())
+        floor = self.world.tiles[nxt]
+        if self._blue_wait_left > 0 or floor is TileType.BLACK:
+            self.lop += 1
+        self.pos = nxt
+        self.visits[nxt] += 1
+        self._blue_wait_left = config.BLUE_WAIT_S if floor is TileType.BLUE else 0.0
+        self._after("rückwärts", config.MOVE_BACK_TIME_S)
+        return MoveResult(MoveStatus.OK, floor)
+
     def turn_left(self):
         self._before()
         self.dir = self.dir.left()
