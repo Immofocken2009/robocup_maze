@@ -784,3 +784,150 @@ class CenteringPlanTest(unittest.TestCase):
         self.assertEqual(centering_plan(40.0, 35.0, None), (0.0, 0.0))
         self.assertEqual(centering_plan(None, None, None), (0.0, 0.0))
         self.assertEqual(centering_plan(12.0, 6.25, 6.25), (0.0, 0.0))     # mittig im Gang: nichts
+
+
+class RearRoomTest(unittest.TestCase):
+    """Rückraum: nie blind zurücksetzen (kein Sensor hinten, die Ketten rutschen an einer Wand, die Encoder zählen weiter)."""
+
+    def make(self, rear):
+        robot = make_robot(Body(wall_cm=None))
+        robot.start_clock()
+        robot.rear_free_cm = rear
+        self.moves, self.trace = [], []
+        robot.drive_cm = lambda cm: self.moves.append(("drive", round(cm, 2)))
+        robot._rotate = lambda deg: self.moves.append(("rotate", round(deg, 2)))
+        robot.trace = lambda what, **v: self.trace.append((what, v))
+        return robot
+
+    def test_known_after_forward_unknown_after_turn(self):
+        robot = make_robot(Body(wall_cm=None))
+        robot.start_clock()
+        self.assertIs(robot.forward(set()).status, MoveStatus.OK)
+        self.assertAlmostEqual(robot.rear_free_cm, TILE, delta=2.5)         # er kam von dort
+        robot._rotate(90)
+        self.assertIsNone(robot.rear_free_cm)
+        robot.rear_free_cm = 20.0
+        robot._rotate(8)                                                    # kleine Korrekturdrehung: bleibt
+        self.assertEqual(robot.rear_free_cm, 20.0)
+        robot.drive_cm(-5)
+        self.assertAlmostEqual(robot.rear_free_cm, 15.0, delta=0.01)
+        robot.drive_cm(-50)
+        self.assertEqual(robot.rear_free_cm, 0.0)
+
+    def test_estimate_from_front_distance_after_turn(self):
+        robot = make_robot(Body(wall_cm=None))
+        self.assertAlmostEqual(robot._rear_room(8.9), 2.1, places=6)        # 28 - 16,5 - 8,9 - 0,5
+        self.assertEqual(robot._rear_room(20.0), 0.0)
+        self.assertEqual(robot._rear_room(None), 0.0)                       # unbekannt: nie blind zurück
+        robot.rear_free_cm = 30.0
+        self.assertEqual(robot._rear_room(8.9), 30.0)                       # bekannt: dieser Wert
+
+    def test_straight_back_limited(self):
+        robot = self.make(1.0)
+        robot._center_before_turn({"front": 4.0, "left": 6.25, "right": 6.25})
+        self.assertEqual(self.moves, [("drive", -1.0)])
+        self.assertEqual(self.trace[-1][0], "zentriert_vor_drehung")
+        self.assertEqual(self.trace[-1][1]["rueckraum"], 1.0)
+
+    def test_slanted_back_limited_and_dropped_when_it_gains_too_little(self):
+        values = {"front": 12.0, "left": 4.0, "right": 9.0}                 # braucht 2,5 cm seitlich = 18 cm schräg
+        robot = self.make(8.0)
+        robot._center_before_turn(values)
+        self.assertEqual([m[0] for m in self.moves], ["rotate", "drive", "rotate", "drive"])      # zuletzt wieder vor
+        self.assertEqual(self.moves[1], ("drive", -8.0))                    # statt 12
+        robot = self.make(5.0)                                              # 5 cm · sin 8° = 0,7 cm < 1 cm: entfällt
+        robot._center_before_turn(values)
+        self.assertEqual(self.moves, [])
+
+    def test_second_turn_of_a_u_turn_does_not_reverse_into_the_wall(self):
+        """Nach der ersten Drehung unbekannt, vorne 8,9 cm: nur 2,1 cm Platz hinten, die Seitenkorrektur entfällt."""
+        robot = self.make(None)
+        robot._center_before_turn({"front": 8.9, "left": 4.5, "right": None})
+        self.assertEqual(self.moves, [])
+
+
+class StickingShareTest(unittest.TestCase):
+    """`sticking`: Anteil der Messungen im Kontakt statt ununterbrochen (Ausreißer setzt nichts zurück)."""
+
+    def feed(self, values, step=1.25, side="left"):
+        s, t, hit = Steering(), 0.0, None
+        for cm in values:
+            s.side(side, cm, t, (0.0, 0.0))
+            hit = s.sticking(t)
+            t += step
+        return s, hit
+
+    def test_single_outlier_does_not_reset(self):
+        s, hit = self.feed([1.9] * 4 + [2.9] + [1.9] * 4, step=1.3)                  # 9 Messungen über 10 cm
+        self.assertEqual(hit, "left")
+
+    def test_short_touch_then_free_does_not_trigger(self):
+        s, hit = self.feed([1.9, 1.9] + [C] * 5, step=2.5)                  # 2 Kontakte, dann 5 cm frei
+        self.assertIsNone(hit)
+        s, hit = self.feed([1.9, 1.9, 1.9] + [C] * 6, step=2.5)
+        self.assertIsNone(hit)
+
+    def test_too_few_measurements_or_too_short(self):
+        self.assertIsNone(self.feed([1.9, 1.9], step=6.0)[1])               # nur 2 Messungen
+        self.assertIsNone(self.feed([1.9] * 4, step=1.0)[1])                # erst 3 cm beobachtet
+
+    def test_right_side(self):
+        self.assertEqual(self.feed([1.9] * 10, side="right", step=1.3)[1], "right")
+
+
+class FrontSlipTest(unittest.TestCase):
+    """Festfahren vorne: Abstand sinkt viel weniger als die Encoderstrecke."""
+
+    class Slippy(FakeUltrasonic):
+        """Abstand vorne = 120 cm − factor · Weg (Wand weit weg): factor < 1 = die Ketten rutschen."""
+        def __init__(self, body, factor):
+            super().__init__(body)
+            self.factor = factor
+
+        def measure(self, side):
+            cm = super().measure(side)
+            if side == "front":
+                cm = 120.0 - self.factor * self.body.x
+                self.last[side] = cm
+            return cm
+
+    def run_forward(self, factor, free_after_back=False):
+        body = Body(wall_cm=None)
+        us = self.Slippy(body, factor)
+        robot = RealRobot(FakeMotors(body), us, FakeColor(body))
+        seen, actions = [], []
+        robot.trace = lambda what, **v: seen.append((what, v))
+        original = robot.set_action
+        robot.set_action = lambda a, d="": (actions.append(a), original(a, d))[1]
+        if free_after_back:                       # nach dem Zurücksetzen packen die Ketten wieder
+            drive = robot.drive_cm
+            robot.drive_cm = lambda cm: (setattr(us, "factor", 1.0) if cm < 0 else None, drive(cm))[1]
+        return body, robot, seen, actions
+
+    def test_slipping_backs_off_and_continues(self):
+        config_front = mock.patch.object(config, "FRONT_TRUST_CM", 200.0)
+        with config_front:
+            body, robot, seen, actions = self.run_forward(0.2, free_after_back=True)
+            result = robot.forward(set())
+        self.assertIn("Rutscht vorne", actions)
+        hits = [v for what, v in seen if what == "rutscht"]
+        self.assertEqual(len(hits), 1)
+        self.assertLess(hits[0]["gemessen"], config.FRONT_STUCK_RATIO * hits[0]["erwartet"])
+        self.assertFalse(any(what == "schleift" for what, _ in seen))
+        self.assertFalse(any(v["winkel"] for what, v in seen if what == "drehen"))      # kein Wegdrehen
+        self.assertIs(result.status, MoveStatus.OK)
+
+    def test_normal_drive_with_slip_factor_does_not_trigger(self):
+        with mock.patch.object(config, "FRONT_TRUST_CM", 200.0):
+            body, robot, seen, actions = self.run_forward(0.87)
+            robot.forward(set())
+        self.assertNotIn("Rutscht vorne", actions)
+        self.assertFalse(any(what == "rutscht" for what, _ in seen))
+
+    def test_gives_up_after_max_tries(self):
+        with mock.patch.object(config, "FRONT_TRUST_CM", 200.0):
+            body, robot, seen, actions = self.run_forward(0.2)
+            result = robot.forward(set())
+        self.assertIs(result.status, MoveStatus.BLOCKED)
+        self.assertEqual(actions.count("Rutscht vorne"), config.CONTACT_MAX_TRIES)
+        self.assertTrue(any(what == "blockiert" for what, _ in seen))

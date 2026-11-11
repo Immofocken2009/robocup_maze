@@ -144,6 +144,11 @@ STEER_CONTACT_CM = 2.5          # Seitenwert so nah oder näher: die Kante schle
                                 # Kante nach innen). Diese Seite zählt sofort (kein Warten auf die zweite Messung) und die
                                 # Lenkänderungs-Begrenzung gilt für diese Messung nicht. Läufe 2026-11-11: 12 von 47 Fahrten
 STEER_CONTACT_DIST_CM = 10.0    # bleibt ein Seitenwert so viele cm Fahrt ununterbrochen im Kontakt: hängt er, zurücksetzen
+STEER_CONTACT_SHARE = 0.8       # ... und in den letzten STEER_CONTACT_DIST_CM cm waren mindestens so viele Messungen der Seite (mindestens 3)
+                                # im Kontakt (ein Ausreißer setzt nichts zurück; Läufe 2026-11-11: zweimal bei 8,9 von 10 cm)
+FRONT_STUCK_DIST_CM = 8.0       # Festfahren vorne: sinkt der Abstand vorne über so viele cm Encoderstrecke ...
+FRONT_STUCK_RATIO = 0.5         # ... um weniger als dieses Vielfache der Encoderstrecke, rutschen die Ketten (echt 0,87, Lauf 2026-11-11 16:42: 9,5 von
+                                # 22 cm): zurücksetzen, ohne Wegdrehen (Seite unbekannt), weiterfahren; zählt zu CONTACT_MAX_TRIES
 CONTACT_BACK_CM = 5.0           # so weit zurücksetzen, wenn er schleift
 CONTACT_ANGLE_DEG = 8.0         # danach so weit von der Wand weg drehen (wie DEAD_END_ANGLE_DEG)
 CONTACT_MAX_TRIES = 2           # so oft je Fahrt zurücksetzen; danach wie "Ketten blockiert" (zurück, als Wand melden)
@@ -162,6 +167,7 @@ DEAD_END_MAX_BACK_CM = 12.0     # so weit höchstens schräg zurück
 # Vor jeder 90°-Drehung zentrieren, wenn eine Ecke anstoßen würde (Läufe 2026-11-11: vor 15 von 22 Drehungen hatte eine
 # Ecke <= 0,3 cm Luft). Die Ecken schwenken auf 12,77 cm: frei ist vorne f - 4,52 cm, seitlich s - 5,02 cm
 # (f/s = gemessener Abstand des Sensors). Dazu je 0,5 cm Reserve.
+REAR_MARGIN_CM = 0.5            # Zentrieren: so viel vom (geschätzten) freien Raum hinten bleibt unbenutzt (kein Sensor hinten)
 TURN_FRONT_MIN_CM = 5.0         # vorne näher: gerade zurück bis FRONT_CENTER_CM (höchstens DEAD_END_MAX_BACK_CM)
 TURN_SIDE_MIN_CM = 5.5          # seitlich näher: schräg zurück wie in der Sackgasse, bis mittig
 HEADING_FIX_MIN_DEG = 1.0       # kleinerer Schrägstand: nicht drehen

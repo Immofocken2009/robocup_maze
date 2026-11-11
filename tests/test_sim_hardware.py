@@ -190,6 +190,7 @@ class DeadEndTest(unittest.TestCase):
         robot.start_clock()
         hw.body.x = TILE / 2 + x_offset
         hw.body.y = 2 * TILE - 1 - (front_cm + config.ROBOT_LENGTH_CM / 2)   # Innenseite der Nordwand bei 2·TILE - 1
+        robot.rear_free_cm = TILE               # er ist von hinten gekommen (offene Kachel dahinter)
         return hw, robot
 
     def measure(self, hw):
@@ -225,6 +226,24 @@ class DeadEndTest(unittest.TestCase):
                 robot.turn_left()
             self.assertGreater(abs((hw.body.heading % 360) - 180.0), 10.0)
 
+    def test_u_turn_second_turn_does_not_push_into_the_old_side_wall(self):
+        """Sackgasse, zwei Drehungen: vor der zweiten steht hinten die alte Seitenwand (kein Sensor dort). Er setzt dort
+        nicht blind zurück (Läufe 2026-11-11: 12 cm gegen 5 cm Luft, danach 6-9 cm zu weit vor und schräg)."""
+        for offset, front in ((2.7, 4.0), (-2.7, 4.0), (0.0, 4.0), (1.5, 5.5)):
+            hw, robot = self.setup_dead_end(offset, front)
+            robot.read_walls()
+            robot.turn_left()
+            y_before = hw.body.y
+            rooms, back = [], []
+            room, drive = robot._rear_room, robot.drive_cm
+            robot._rear_room = lambda front: rooms.append(room(front)) or rooms[-1]
+            robot.drive_cm = lambda cm: (back.append(-cm) if cm < 0 else None, drive(cm))[1]
+            robot.turn_left()
+            self.assertLessEqual(sum(back), (max(rooms) if rooms else 0.0) + 0.01)      # nie mehr als hinten frei ist
+            self.assertAlmostEqual(hw.body.heading % 360, 180.0, delta=4.0)
+            self.assertAlmostEqual(hw.body.x, TILE / 2, delta=3.0)
+            self.assertAlmostEqual(hw.body.y, y_before, delta=3.0)      # die zweite Drehung schiebt ihn nicht weg
+
     def test_centered_robot_stays_put(self):
         hw, robot = self.setup_dead_end(0.0, config.FRONT_CENTER_CM)
         x, y = hw.body.x, hw.body.y
@@ -251,6 +270,7 @@ class TurnCenteringTest(unittest.TestCase):
         robot.start_clock()
         hw.body.x = TILE / 2 + x_offset
         hw.body.y = 2 * TILE - 1 - (front_cm + config.ROBOT_LENGTH_CM / 2)
+        robot.rear_free_cm = TILE               # er ist von hinten gekommen
         return hw, robot
 
     def test_two_walls_off_centre_and_close_in_front(self):

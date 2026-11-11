@@ -359,6 +359,25 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Rückweg wieder vor (sonst steht er bis 11 cm zu weit hinten und nach dem Drehen versetzt: in der Simulation 0/12 Läufe fertig statt 12/12).
   Aufzeichnung: Trace `zentriert_vor_drehung`, keine neuen Hardware-Eingänge. Simulation (Drift, Rauschen, Schlupf, Kettenfaktor, 12 Seeds):
   „einfach“ 12/12 (vorher 8), „sonderboeden“ 12/12 (vorher 9), Zentrieren 2–7 mal je Lauf, im Mittel ca. 7 s Sim-Zeit je Lauf. Nicht auf dem echten Roboter geprüft.
+- **Rückraum beim Zentrieren, Festfahren vorne, `sticking`-Anteil** (entschieden 2026-11-11, Vorgabe Projektinhaber nach Auswertung der
+  Läufe 16:41/16:42): Das Zentrieren vor der zweiten Drehung eines Wendens setzte 12 cm schräg zurück, obwohl hinten die alte Seitenwand
+  mit ca. 5 cm Luft stand; die Wand bremst, die Ketten rutschen, die Encoder zählen trotzdem 12 cm, und die Vorfahrt setzte ihn netto
+  6–9 cm zu weit vor und schräg (kein Sensor hinten). **(a) Nie blind zurücksetzen:** `RealRobot.rear_free_cm` = freier Raum hinten:
+  nach einer Vorwärtsfahrt die gefahrene Strecke (höchstens `TILE_SIZE_CM`, er kam von dort), nach jeder Drehung >= 45° `None`
+  (unbekannt), nach Rückwärtsfahren um x cm um x weniger (nicht unter 0). Beim Zentrieren (Sackgasse und vor Drehung, `_rear_room`) gilt
+  dieser Wert, sonst `TILE_SIZE_CM − WALL_THICKNESS_CM − ROBOT_LENGTH_CM − vorne − REAR_MARGIN_CM` (0,5; z.B. vorne 8,9 → 2,1 cm; vorne
+  unbekannt → 0). Die Rückfahrstrecke (gerade und schräg) wird darauf begrenzt, die seitliche Korrektur wird kleiner (Strecke · sin 8°) und
+  entfällt unter `DEAD_END_SIDE_MIN_CM`. Trace-Feld `rueckraum` in `sackgasse`/`zentriert_vor_drehung`. Die Vorfahrt danach ist unverändert.
+  **(b) Festfahren vorne:** am Ende von Lauf 2 meldete er die Kachel erreicht, obwohl die Ketten rutschten (Encoder 22 cm, Abstand vorne
+  sank nur 9,5 cm). In `forward` werden die Vorne-Messungen mit Wand in Reichweite (dieselben wie für den Haltepunkt) als (Encoderstrecke,
+  Abstand) gesammelt; sinkt der Abstand über die letzten `FRONT_STUCK_DIST_CM` (8 cm) um weniger als `FRONT_STUCK_RATIO` (0,5) · Strecke
+  (echt ca. 0,87), setzt er um `CONTACT_BACK_CM` zurück **ohne Wegdrehen** (Seite unbekannt) und fährt weiter. Steigt ein Wert um mehr als
+  `STEER_STEADY_CM` (anderes Echo), beginnt das Fenster neu, ebenso nach jedem Zurücksetzen. Zählt mit `sticking` zusammen zu
+  `CONTACT_MAX_TRIES`, danach wie „Ketten blockiert“. Aktion „Rutscht vorne“, Trace `rutscht` (erwartet = Encoderstrecke, gemessen =
+  Abnahme). **(c) `sticking` robuster:** statt „ununterbrochen <= 2,5 cm“ gilt: seit mehr als `STEER_CONTACT_DIST_CM` beobachtet, und in den
+  letzten 10 cm waren mindestens `STEER_CONTACT_SHARE` (0,8) der Messungen der Seite im Kontakt, mindestens 3 (ein Ausreißer setzte
+  zweimal bei 8,9 von 10 cm alles zurück). Simulation (Drift, Rauschen, Schlupf, Kettenfaktor, 12 Seeds): „einfach“ 12/12,
+  „sonderboeden“ 12/12 (vorher ebenso). Nicht auf dem echten Roboter geprüft.
 - **Reiter „Einstellungen“ (Lenkung)** (entschieden 2026-11-10, Vorgabe Projektinhaber): fünfter Reiter, stellt die Stärke der
   Lenkung beim Geradeausfahren ein: `STEER_KP` (Lenkstärke), `STEER_KD` (Dämpfung), `STEER_MAX_DPS` (größte Lenkung),
   `STEER_SLEW_DPS_PER_CM` (Lenkänderung); Liste, Bereiche und Hilfetexte in `config.STEER_SETTINGS`. Regler + Zahlenfeld,
