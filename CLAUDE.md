@@ -15,6 +15,12 @@
    Claude entscheidet keine technischen Ansätze (Algorithmen, Bibliotheken,
    Regelungen, Pins, ...) eigenmächtig.
 
+5. **Modellaufteilung** (Vorgabe Projektinhaber 2026-11-11): **Fable 5.1 = Chef/Denker** (Planung, Analyse, Entscheidungen,
+   Auswertung), **Sonnet 4.6 = Ausführung** (Code schreiben und ausführen, Tests, Simulationsläufe, Routine). Sub-Agenten für
+   Ausführung mit `model: "sonnet"`, für Denkaufgaben mit `model: "fable"`. Das Modell der Hauptsitzung stellt der Projektinhaber
+   in der App ein (Claude kann es für die eigene Sitzung nicht umstellen). Das Agent-Tool kennt nur den Namen „sonnet“, nicht die
+   Version: ob dahinter genau 4.6 steckt, ist nicht prüfbar.
+
 ## Hardware (Stand 2026-11-03)
 
 - Raspberry Pi 5, Debian 13 (trixie), Python 3.13
