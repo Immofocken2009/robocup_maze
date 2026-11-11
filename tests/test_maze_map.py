@@ -44,6 +44,15 @@ class MazeMapTest(unittest.TestCase):
         m.mark_detected((0, 1), TileType.BLACK)
         self.assertEqual(m.frontier(), set())
 
+    def test_detected_does_not_overwrite_visited_tile(self):
+        m = MazeMap()
+        m.mark_visited((0, 1), TileType.SILVER)
+        self.assertFalse(m.mark_detected((0, 1), TileType.BLACK))
+        self.assertIs(m.kind((0, 1)), TileType.SILVER)
+        self.assertTrue(m.mark_detected((0, 2), TileType.BLACK))
+        self.assertFalse(m.mark_detected((0, 2), TileType.RED))
+        self.assertIs(m.kind((0, 2)), TileType.BLACK)
+
 
 if __name__ == "__main__":
     unittest.main()

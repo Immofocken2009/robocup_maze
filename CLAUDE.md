@@ -163,6 +163,13 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   - Zeitlimit: Heimweg-Zeit laufend schätzen, bei knapper Restzeit zum Start (Exit-Bonus)
   - Position: Kacheln per Encoder zählen, an Wänden korrigieren (Abstand vorne, mittig zwischen Seitenwänden)
 - **Lack of Progress:** Der Roboter behält die **ganze Karte** (kein Zurückspringen auf den Checkpoint-Stand).
+- **Modus „abgebrochen: …“ statt „fertig“** (2026-11-11): Endet die Erkundung, ohne dass der Start erreicht wurde, oder weil keine Grenzkachel
+  erreichbar ist, setzt der Explorer `mode` = „abgebrochen: Start nicht erreicht (Grund)“ bzw. „abgebrochen: keine Grenzkachel erreichbar (n Ziele)“;
+  Grund in `explorer.stop_reason` („Zeit knapp“ zählt nicht als Abbruch). Sonst wie bisher „fertig“. Der Text läuft über das normale Feld `mode`
+  (Webseite, Aufzeichnung), nichts fragt auf „fertig“ ab.
+- **Bodentyp besuchter Kacheln wird nicht überschrieben** (2026-11-11): `MazeMap.mark_detected` ändert besuchte Kacheln und Kacheln mit anderem
+  bekanntem Typ nicht mehr (gibt False zurück). Der Explorer loggt „Widerspruch: ...“ und zählt `explorer.contradictions` (auch bei „Unerwartete Wand“
+  an einer als offen bekannten Kante). **Noch ohne Folge** (kein Abbruch); der Projektinhaber entscheidet später, was ab wann passiert.
 - **Später:** Rampen/Etagen (dritte Koordinate), Opfererkennung
   (pro Wand merken, ob schon abgesucht).
 
@@ -211,6 +218,10 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
     Läufen komplett und endet am Start; er verliert die Orientierung („Unerwartete Wand“, kein Weg zum Start). Ohne
     `DRIFT_BIAS` klappt alles. `test_noise_and_slip` läuft deshalb ohne Drift. Siehe Offene Fragen.
 - Alle Browser sehen dieselbe Simulation (gemeinsamer Zustand auf dem Server).
+- **Kappenprüfung am Wandende** (2026-11-11): `SimBody._collides` prüft das Wandende nicht mehr als Punkt im Roboterrechteck, sondern als runde Kappe
+  (Radius `WALL_HALF`): Abstand Wandspitze–Rechteck kleiner als `WALL_HALF` (minus `soft`) = Kollision. Test `CollisionTest`.
+- **Anzeige springt bei großen Sprüngen** (2026-11-11): `PoseAnim.set` in `web/app.js` interpoliert nicht, wenn sich die Pose um mehr als 3 cm oder 15°
+  ändert, sondern springt direkt (sonst schneidet das Bild bei hohem Tempo durch Wände).
 
 ### Echter Roboter (freigegeben 2026-11-03)
 

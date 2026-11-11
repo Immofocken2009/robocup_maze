@@ -59,6 +59,22 @@ class SensorTest(unittest.TestCase):
         self.assertAlmostEqual(hw.body.distance("front"), config.FRONT_CENTER_CM + 5 * TILE, places=6)
 
 
+class CollisionTest(unittest.TestCase):
+    def test_wall_end_cap_collides(self):
+        """Das Wandende hat eine runde Kappe (Radius WALL_HALF): 0,5 cm Abstand stößt, 1,5 cm nicht."""
+        # freistehende Wand zwischen Kachel (0, 0) und (1, 0); Wandspitze bei y = TILE, Roboter in Kachel (2, 1)
+        tiles = [{"x": x, "y": y, "walls": "W" if (x, y) == (1, 0) else ""} for x in range(3) for y in range(2)]
+        hw = SimHardware(SimWorld.from_dict({"width": 3, "height": 2, "start": [2, 0], "tiles": tiles}))
+        body = hw.body
+        tip_x, tip_y = TILE, TILE                           # oberes Ende der Wand
+        half_w, half_l = config.ROBOT_WIDTH_CM / 2, config.ROBOT_LENGTH_CM / 2
+        # Roboter nach Norden, seine linke Kante steht neben der Wandspitze (Spitze liegt zwischen Stützpunkten)
+        for gap, expected in ((0.5, True), (1.5, False)):
+            x = tip_x + half_w + gap
+            y = tip_y + 0.4 * half_l                         # Spitze etwas hinter der Mitte
+            self.assertEqual(body._collides(x, y, 0.0) is not None, expected, f"Abstand {gap} cm")
+
+
 class DrivingTest(unittest.TestCase):
     def test_forward_ends_on_tile_center(self):
         hw = SimHardware(corridor(4))

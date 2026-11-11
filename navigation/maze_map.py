@@ -71,9 +71,15 @@ class MazeMap:
         self.visited.add(pos)
         self.tiles[pos] = kind
 
-    def mark_detected(self, pos: Pos, kind: TileType):
-        """Boden erkannt, ohne die Kachel zu befahren (z.B. schwarz oder rot)."""
+    def mark_detected(self, pos: Pos, kind: TileType) -> bool:
+        """Boden erkannt, ohne die Kachel zu befahren (z.B. schwarz oder rot).
+        Eine besuchte Kachel oder eine mit schon anderem bekanntem Typ wird nicht überschrieben
+        (False = Widerspruch, Karte bleibt)."""
+        old = self.tiles.get(pos)
+        if pos in self.visited or (old is not None and old != kind):
+            return False
         self.tiles[pos] = kind
+        return True
 
     def kind(self, pos: Pos) -> TileType | None:
         return self.tiles.get(pos)

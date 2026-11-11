@@ -235,10 +235,11 @@ class SimBody:
         for seg in self._segments_near(x, y):
             if any(_dist(px, py, seg) < WALL_HALF - soft for px, py in points):
                 return seg
-            for ex, ey in ((seg[0], seg[1]), (seg[2], seg[3])):     # Wandende ragt in den Roboter
+            for ex, ey in ((seg[0], seg[1]), (seg[2], seg[3])):     # Wandende (Kappe, Radius WALL_HALF) im Roboter
                 lat = (ex - x) * rx + (ey - y) * ry
                 lon = (ex - x) * fx + (ey - y) * fy
-                if abs(lat) < WIDTH / 2 and abs(lon) < LENGTH / 2:
+                gap = math.hypot(max(abs(lat) - WIDTH / 2, 0.0), max(abs(lon) - LENGTH / 2, 0.0))
+                if gap < WALL_HALF - soft:
                     return seg
         return None
 

@@ -26,11 +26,13 @@ class Explorer:
         self.maze = MazeMap()
         self.pos: Pos = START
         self.heading = Dir.N
-        self.mode = "bereit"            # bereit, erkunden, heimfahren, Exit-Signal, fertig
+        self.mode = "bereit"            # bereit, erkunden, heimfahren, Exit-Signal, fertig, abgebrochen: ...
         self.planned: list[Pos] = []    # noch abzufahrende Kacheln des aktuellen Plans
         self.last_checkpoint: Pos | None = None
         self.checkpoint_heading = Dir.N  # Blickrichtung bei der letzten Ankunft am Checkpoint
         self.events: deque[str] = deque(maxlen=50)
+        self.stop_reason: str | None = None   # warum die Erkundung vorzeitig endete (None = alles erkundet)
+        self.contradictions = 0         # Widersprüche zwischen Karte und Messung (nur gezählt, noch ohne Folge)
 
     # --- Hauptablauf ----------------------------------------------------------
 
@@ -60,6 +62,7 @@ class Explorer:
         self._explore()
 
     def _explore(self):
+        self.stop_reason = None
         while True:
             targets = self._targets()
             if not targets:
@@ -74,9 +77,11 @@ class Explorer:
                        aktionen="".join(actions) if actions is not None else None)
             if actions is None:
                 self._log("Keine Grenzkachel erreichbar")
+                self.stop_reason = f"keine Grenzkachel erreichbar ({len(targets)} Ziele)"
                 break
             if not self._enough_time_for(actions):
                 self._log("Zeit wird knapp, fahre heim")
+                self.stop_reason = "Zeit knapp"
                 break
             self._execute(actions)
 
@@ -88,7 +93,12 @@ class Explorer:
             self.robot.signal_exit()
         else:
             self._log("Start nicht erreicht")
-        self.mode = "fertig"
+        if self.pos != START:
+            self.mode = "abgebrochen: Start nicht erreicht" + (f" ({self.stop_reason})" if self.stop_reason else "")
+        elif self.stop_reason and self.stop_reason != "Zeit knapp":
+            self.mode = f"abgebrochen: {self.stop_reason}"
+        else:
+            self.mode = "fertig"
         self.on_update()
 
     def _sense_start(self):
@@ -150,11 +160,16 @@ class Explorer:
                    boden=result.floor.value if result.floor else None)
 
         if result.status is MoveStatus.BLOCKED:
+            if self.maze.wall(self.pos, self.heading) is False:
+                self.contradictions += 1        # Karte sagte „offen“
             self.maze.set_wall(self.pos, self.heading, True)
             self._log(f"Unerwartete Wand bei {self.pos}, plane neu")
             return False
         if result.status is MoveStatus.AVOIDED:
-            self.maze.mark_detected(target, result.floor)
+            if not self.maze.mark_detected(target, result.floor):
+                self.contradictions += 1
+                self._log(f"Widerspruch: {result.floor.value} erkannt bei {target}, "
+                          f"Karte sagt {self.maze.kind(target).value} (besucht: {target in self.maze.visited})")
             what = "Schwarze Kachel" if result.floor is TileType.BLACK else "Gefahrenzone"
             self._log(f"{what} bei {target}, zurück")
             return False

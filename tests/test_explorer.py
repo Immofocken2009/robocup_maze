@@ -2,7 +2,7 @@ import unittest
 
 import config
 from navigation.explorer import START, Explorer
-from navigation.maze_map import TileType
+from navigation.maze_map import Dir, TileType
 from simulation.maze_generator import generate
 from simulation.sim_robot import SimRobot, SimWorld, list_mazes
 
@@ -175,6 +175,50 @@ class ScoreTest(unittest.TestCase):
         score = robot.score()
         self.assertEqual(score["checkpoints"], 10 * silver)
         self.assertTrue(robot.exit_done)
+
+
+
+class AbortModeTest(unittest.TestCase):
+    def corridor(self) -> SimWorld:
+        tiles = [{"x": 0, "y": y, "walls": "EW", "floor": "normal"} for y in range(3)]
+        return SimWorld.from_dict({"width": 1, "height": 3, "start": [0, 0], "tiles": tiles})
+
+    def test_complete_run_is_fertig(self):
+        _, explorer = explore(self.corridor())
+        self.assertEqual(explorer.mode, "fertig")
+        self.assertIsNone(explorer.stop_reason)
+
+    def test_start_not_reachable_is_abgebrochen(self):
+        class BlockedWay(SimRobot):
+            explorer = None
+            calls = 0
+
+            def forward(self, avoid):
+                result = super().forward(avoid)
+                self.calls += 1
+                if self.calls == 2:     # Karte widerspricht jetzt: Rückweg zum Start gesperrt
+                    self.explorer.maze.set_wall((0, 0), Dir.N, True)
+                return result
+
+        robot = BlockedWay(self.corridor(), time_limit_s=NO_LIMIT)
+        explorer = Explorer(robot, time_limit_s=NO_LIMIT)
+        robot.explorer = explorer
+        explorer.run()
+        self.assertTrue(explorer.mode.startswith("abgebrochen:"), explorer.mode)
+        self.assertIn("Start nicht erreicht", explorer.mode)
+
+    def test_detected_black_on_visited_silver_is_contradiction(self):
+        from navigation.robot_interface import MoveResult, MoveStatus
+
+        class Avoids(SimRobot):
+            def forward(self, avoid):
+                return MoveResult(MoveStatus.AVOIDED, TileType.BLACK)
+
+        explorer = Explorer(Avoids(self.corridor(), time_limit_s=NO_LIMIT), time_limit_s=NO_LIMIT)
+        explorer.maze.mark_visited((0, 1), TileType.SILVER)
+        explorer._forward()                      # Ziel (0, 1): Roboter meldet „schwarz“
+        self.assertIs(explorer.maze.kind((0, 1)), TileType.SILVER)
+        self.assertEqual(explorer.contradictions, 1)
 
 
 if __name__ == "__main__":

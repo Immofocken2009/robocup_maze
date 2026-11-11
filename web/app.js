@@ -244,6 +244,10 @@ class PoseAnim {
     const to = { x: target.x, y: target.y, angle };
     if (to.x === this.to.x && to.y === this.to.y && to.angle === this.to.angle) return;
     this.from = this.pose(performance.now());
+    // Großer Sprung (Pose in Kacheln und Vierteldrehungen): mehr als 3 cm oder 15° nicht überblenden,
+    // sondern direkt springen, sonst schneidet das Bild bei hohem Tempo durch Wände
+    if (Math.hypot(to.x - this.from.x, to.y - this.from.y) > 3 / 30 ||
+        Math.abs(to.angle - this.from.angle) > 15 / 90) this.from = to;
     this.to = to;
     this.start = performance.now();
     this.dur = reducedMotion.matches ? 0 : dur;
