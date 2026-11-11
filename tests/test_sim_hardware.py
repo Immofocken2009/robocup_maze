@@ -282,7 +282,8 @@ if __name__ == "__main__":
 
 
 class DeadEndTest(unittest.TestCase):
-    """Sackgasse: vor dem Wenden mittig zurücksetzen (Ecken schwenken auf 12,8 cm, Wand 14 cm von der Mitte)."""
+    """Sackgasse: kein Zentrieren beim Ankommen, raus rückwärts; wendet er doch, zentriert das normale Zentrieren vor der Drehung
+    (Ecken schwenken auf 12,8 cm, Wand 14 cm von der Mitte)."""
 
     def setup_dead_end(self, x_offset: float, front_cm: float):
         tiles = [{"x": 0, "y": 0, "walls": "EW", "floor": "normal"}, {"x": 0, "y": 1, "walls": "EWN", "floor": "normal"}]
@@ -298,20 +299,27 @@ class DeadEndTest(unittest.TestCase):
     def measure(self, hw):
         return {side: hw.body.distance(side) for side in ("front", "left", "right")}
 
-    def test_backs_up_to_tile_centre_distance(self):
-        hw, robot = self.setup_dead_end(0.0, 3.5)
-        robot.read_walls()
-        d = self.measure(hw)
-        self.assertGreaterEqual(d["front"], config.FRONT_CENTER_CM - 0.8)
-        self.assertAlmostEqual(hw.body.heading, 0.0, delta=1.5)
+    def test_dead_end_is_not_centred_when_arriving(self):
+        """Seit dem Rückwärtsfahren (2026-11-11) wird in der Sackgasse nicht mehr zentriert: `read_walls` misst nur."""
+        for offset, front in ((0.0, 3.5), (2.5, 4.0), (-2.5, 4.0)):
+            hw, robot = self.setup_dead_end(offset, front)
+            x, y, heading = hw.body.x, hw.body.y, hw.body.heading
+            calls = []
+            original = hw.motors.set_dps
+            hw.motors.set_dps = lambda l, r: (calls.append((l, r)), original(l, r))[1]
+            self.assertTrue(all(robot.read_walls().values()))
+            self.assertFalse(calls)
+            self.assertEqual((hw.body.x, hw.body.y, hw.body.heading), (x, y, heading))
 
-    def test_side_offset_is_reduced_without_turning_the_robot(self):
-        for offset in (2.5, -2.5):
-            hw, robot = self.setup_dead_end(offset, 4.0)
-            before = abs(hw.body.x - TILE / 2)
+    def test_backs_out_of_dead_end(self):
+        """Aus der Sackgasse rückwärts (Aktion „B“): steht danach auf der Kachel davor (±3 cm), Blickrichtung ±4°."""
+        for offset, front in ((0.0, 5.75), (2.5, 4.0), (-2.5, 4.0), (1.5, 6.5)):
+            hw, robot = self.setup_dead_end(offset, front)
             robot.read_walls()
-            self.assertLess(abs(hw.body.x - TILE / 2), before - 0.8)         # deutlich mittiger
-            self.assertAlmostEqual(hw.body.heading, 0.0, delta=1.5)           # wieder gerade
+            robot.backward()
+            self.assertAlmostEqual(hw.body.y, TILE / 2, delta=3.0)
+            self.assertAlmostEqual(hw.body.x, TILE / 2, delta=3.0)
+            self.assertAlmostEqual((hw.body.heading + 180) % 360 - 180, 0.0, delta=4.0)
 
     def test_turn_180_works_with_centering_but_hangs_without(self):
         """Die Ecken streifen beim Drehen die Wand (Ketten rutschen, er dreht nicht): wie am echten Roboter."""
@@ -322,7 +330,7 @@ class DeadEndTest(unittest.TestCase):
             robot.turn_left()
             self.assertAlmostEqual(hw.body.heading % 360, 180.0, delta=3.0)
             hw, robot = self.setup_dead_end(offset, front)
-            with mock.patch.object(type(robot), "_center_before_turn", lambda self, values, dead_end=False: None):
+            with mock.patch.object(type(robot), "_center_before_turn", lambda self, values: None):
                 robot.read_walls()
                 robot.turn_left()
                 robot.turn_left()

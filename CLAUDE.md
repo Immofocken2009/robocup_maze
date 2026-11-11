@@ -161,8 +161,8 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Aufschlag und dieselbe Wartezeit wie vorwärts. Grund: beim Wenden auf der Stelle streifen die Ecken die Wände (nur 1,2 cm Luft), das
   kostete Orientierung; rückwärts spart außerdem ca. 4 s je Sackgasse. Schnittstelle: `RobotInterface.backward()` (gleiches Ergebnis
   wie `forward`; BLOCKED = Wand hinten, der Explorer trägt sie hinten ein und plant neu). Zeitschätzung `MOVE_BACK_TIME_S` (= `MOVE_TIME_S`,
-  MESSEN). Kachelweiser `SimRobot.backward()` für die Tests. Die Sackgassen-Zentrierung beim Ankommen (`_center_before_turn` in
-  `read_walls`) bleibt, auch wenn danach nicht mehr gewendet wird.
+  MESSEN). Kachelweiser `SimRobot.backward()` für die Tests. Die Sackgassen-Zentrierung beim Ankommen
+  wurde am 2026-11-11 entfernt (siehe „Sackgasse“ im Abschnitt Echter Roboter).
 - **Sonderfälle:**
   - Schwarz: beim Fahren Boden prüfen → stoppen, zurück, als schwarz markieren, nie wieder einplanen
   - Blau: bei jedem Befahren warten (Wartezeit laut aktuellem Regelwerk)
@@ -335,17 +335,18 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Messpunkten). Einzelne Sensoren neu kalibrierbar, die anderen bleiben. `hardware/ultrasonic.py` korrigiert jede
   Messung. Ohne Kalibrierung (oder für einen fehlenden Sensor): Rohwerte und Warnung auf der Webseite.
   Die Kalibrierung steht im Kopf jeder Aufzeichnung. Die Simulation misst ohne Fehler und braucht keine.
-- **Sackgasse: vor dem Wenden zurücksetzen** (entschieden 2026-11-10, Vorgabe Projektinhaber: schräg zurücksetzen): Beim Wenden um
-  180° in einer Sackgasse (Wand vorne und beide Seiten) stieß er mit den hinteren Ecken (mal links, mal rechts) an. Die
-  Aufzeichnungen 15:06 und 15:08 zeigen: die Encoder liefen beim Wenden normal durch (kein Stillstand erkannt), der Roboter stand
-  aber mit nur ca. 4 cm Abstand vorne (Soll 5,75 cm, Auslaufen ohne Bremse) und bis 2,7 cm außermittig. Die Ecken schwenken
-  auf 12,8 cm, die Wände stehen 14 cm von der Kachelmitte: nur 1,2 cm Luft. Jetzt (`RealRobot._center_dead_end`, aufgerufen
-  in `read_walls`, wenn alle drei Wände da sind; seit 2026-11-11 dieselbe Hilfsfunktion `_center_before_turn` wie die Zentrierung vor jeder Drehung, siehe dort): auf den Kachelmitten-Abstand vorne zurück und seitlich mittig, indem er um
-  `DEAD_END_ANGLE_DEG` (8°) von der näheren Wand weg dreht, schräg bis höchstens `DEAD_END_MAX_BACK_CM` (12 cm) zurücksetzt und
-  wieder gerade dreht; ab `DEAD_END_SIDE_MIN_CM` (1 cm) Versatz. Größerer Winkel geht nicht: beim Eindrehen schwenkt die
-  vordere Ecke zur näheren Wand (ab ca. 12° stößt sie an). **Bekannte Grenzen:** der Roboter steht danach bis ca. 11 cm hinter
-  der Kachelmitte (die nächste Fahrt korrigiert über den Abstand vorne, ohne Wand in Sicht nur nach Encoder: dann ca. so viel
-  zu kurz). In der Fahrphysik hängt er ohne das Zurücksetzen bei 2,7 cm Versatz und 4 cm Abstand vorne beim Wenden (Ecke streift, Ketten rutschen), mit Zurücksetzen dreht er sauber 180° (Test `DeadEndTest`). Nicht auf dem echten Roboter geprüft.
+- **Sackgasse: seit 2026-11-11 Rückwärtsfahren, kein Zentrieren mehr** (Vorgabe Projektinhaber): Der Explorer plant aus einer Sackgasse
+  immer „B“ (Kosten 1,5 statt zwei Drehungen = 3, die Kachel dahinter ist immer besucht). Das Zentrieren in `read_walls` bei drei Wänden
+  (`dead_end`, kostete ca. 2 s je Sackgasse) diente nur dem Wenden und ist entfernt (`centering_plan` und `_center_before_turn` ohne
+  `dead_end`, Trace `sackgasse` und Aktion „setzt in der Sackgasse zurück“ gibt es nicht mehr). `read_walls` misst nur noch. Sicherheitsnetz:
+  wendet er trotzdem in einer Sackgasse (z.B. „B“ wegen Blau/Zeit teurer), greift das normale Zentrieren vor der Drehung mit dem Rückraum.
+  Frühere Lösung (2026-11-10): beim Wenden stießen die hinteren Ecken an (Drehkreis 12,8 cm, Wände 14 cm von der Mitte, nur 1,2 cm Luft; er
+  stand mit ca. 4 cm statt 5,75 cm vorne und bis 2,7 cm außermittig), darum setzte er vorher auf Kachelmitte zurück (schräg um
+  `DEAD_END_ANGLE_DEG` = 8°, höchstens `DEAD_END_MAX_BACK_CM`, ab `DEAD_END_SIDE_MIN_CM`; größerer Winkel stößt vorne an). Tests
+  `DeadEndTest`: kein Zentrieren beim Ankommen, rückwärts heraus (steht auf der Kachel davor ±3 cm, Richtung ±4°), Wenden mit dem normalen
+  Zentrieren. Simulation (12 Seeds, 4 Labyrinthe, mit B): Läufe komplett einfach 12, sonderboeden 12, gross 9 (vorher 8), offener_raum 12;
+  Sim-Zeit unverändert (die Simulation zentrierte in Sackgassen kaum, der Gewinn von ca. 2 s je Sackgasse zeigt sich nur am echten
+  Roboter). Nicht auf dem echten Roboter geprüft.
 - **Wandkontakt beim Fahren** (entschieden 2026-11-11, Vorgabe Projektinhaber nach Auswertung der Läufe 15:42–15:46): In 12 von 47
   Fahrten schleifte die Kante an einer Seitenwand (Seitenwert 1,9 cm, Sensor sitzt 2 cm von der Kante nach innen), teils 20 cm lang,
   meist nach einer 90°-Drehung; die Encoder zeigen das nicht (Ketten rutschen durch), und die Lenkung wartete auf zwei passende
@@ -362,10 +363,17 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   90°-Drehungen hatte eine Ecke höchstens 0,3 cm Luft, danach hatte die nächste Fahrt in 7 von 15 Fällen Wandkontakt. Jetzt prüft
   `RealRobot._turn` vor jeder 90°-Drehung (`_center_before_turn`, Entscheidung in `centering_plan`; Messwerte aus `read_walls`, sonst, z.B.
   bei der 2. Drehung eines Wendens, frisch gemessen): vorne < `TURN_FRONT_MIN_CM` (5,0 = 4,52 + 0,5 Reserve) → gerade zurück auf
-  `FRONT_CENTER_CM` (höchstens `DEAD_END_MAX_BACK_CM`); eine Seite < `TURN_SIDE_MIN_CM` (5,5 = 5,02 + 0,5) → wie in der Sackgasse schräg
+  `FRONT_CENTER_CM` (höchstens `DEAD_END_MAX_BACK_CM`); eine Seite < `TURN_SIDE_MIN_CM` (5,5 = 5,02 + 0,5) → schräg
   (`DEAD_END_ANGLE_DEG`) von der Wand weg, nur bis mittig (B/2 bzw. `SIDE_CENTER_CM`, wenn die Gegenseite keine Wand hat). Beide: erst vorne,
   dann seitlich. Nichts, wenn keine Wand unter 20 cm oder kein Echo. **Wichtig:** reicht nur seitlich, fährt er danach den schrägen
   Rückweg wieder vor (sonst steht er bis 11 cm zu weit hinten und nach dem Drehen versetzt: in der Simulation 0/12 Läufe fertig statt 12/12).
+  **Vorfahrt sparen geprüft, verworfen** (2026-11-11, Vorgabe Projektinhaber: Rest-Längsversatz merken und in der nächsten Fahrt einrechnen
+  bzw. als seitlichen Startversatz der Lenkung): Der schräge Rückweg beträgt 8–12 cm (fast immer über 7), also liegt jeder Versatz weit über
+  einer Schwelle von 3 cm: „Vorfahrt nur ab 3 cm“ ändert nichts (Ergebnis identisch zu heute, auch Schwellen 4/5/7 cm). „Nie vorfahren“ mit
+  Versatz-Merken (nach der Drehung steht er `Versatz` cm seitlich der Spur, Startversatz in der Lenkung nur ohne Wand wirksam, mit Wand
+  misst der Ultraschall ihn ohnehin selbst): Läufe komplett einfach 1/12 (heute 12), sonderboeden 3/12 (12), gross 1/12 (9), offener_raum
+  6/12 (12); Seitenfehler am Kachelende 1,5–2,7 cm statt 0,8–1,1, Winkelfehler 3–4° statt 1,1–2,1° (bis 11 cm seitlich neben der Spur
+  streift er in Gängen mit nur ca. 4 cm Luft an der Wand). Die Vorfahrt bleibt deshalb wie sie ist.
   Aufzeichnung: Trace `zentriert_vor_drehung`, keine neuen Hardware-Eingänge. Simulation (Drift, Rauschen, Schlupf, Kettenfaktor, 12 Seeds):
   „einfach“ 12/12 (vorher 8), „sonderboeden“ 12/12 (vorher 9), Zentrieren 2–7 mal je Lauf, im Mittel ca. 7 s Sim-Zeit je Lauf. Nicht auf dem echten Roboter geprüft.
 - **Rückraum beim Zentrieren, Festfahren vorne, `sticking`-Anteil** (entschieden 2026-11-11, Vorgabe Projektinhaber nach Auswertung der
@@ -373,10 +381,10 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   mit ca. 5 cm Luft stand; die Wand bremst, die Ketten rutschen, die Encoder zählen trotzdem 12 cm, und die Vorfahrt setzte ihn netto
   6–9 cm zu weit vor und schräg (kein Sensor hinten). **(a) Nie blind zurücksetzen:** `RealRobot.rear_free_cm` = freier Raum hinten:
   nach einer Vorwärtsfahrt die gefahrene Strecke (höchstens `TILE_SIZE_CM`, er kam von dort), nach jeder Drehung >= 45° `None`
-  (unbekannt), nach Rückwärtsfahren um x cm um x weniger (nicht unter 0). Beim Zentrieren (Sackgasse und vor Drehung, `_rear_room`) gilt
+  (unbekannt), nach Rückwärtsfahren um x cm um x weniger (nicht unter 0). Beim Zentrieren (vor Drehung, `_rear_room`) gilt
   dieser Wert, sonst `TILE_SIZE_CM − WALL_THICKNESS_CM − ROBOT_LENGTH_CM − vorne − REAR_MARGIN_CM` (0,5; z.B. vorne 8,9 → 2,1 cm; vorne
   unbekannt → 0). Die Rückfahrstrecke (gerade und schräg) wird darauf begrenzt, die seitliche Korrektur wird kleiner (Strecke · sin 8°) und
-  entfällt unter `DEAD_END_SIDE_MIN_CM`. Trace-Feld `rueckraum` in `sackgasse`/`zentriert_vor_drehung`. Die Vorfahrt danach ist unverändert.
+  entfällt unter `DEAD_END_SIDE_MIN_CM`. Trace-Feld `rueckraum` in `zentriert_vor_drehung`. Die Vorfahrt danach ist unverändert.
   **(b) Festfahren vorne:** am Ende von Lauf 2 meldete er die Kachel erreicht, obwohl die Ketten rutschten (Encoder 22 cm, Abstand vorne
   sank nur 9,5 cm). In `forward` werden die Vorne-Messungen mit Wand in Reichweite (dieselben wie für den Haltepunkt) als (Encoderstrecke,
   Abstand) gesammelt; sinkt der Abstand über die letzten `FRONT_STUCK_DIST_CM` (8 cm) um weniger als `FRONT_STUCK_RATIO` (0,5) · Strecke

@@ -320,16 +320,11 @@ class StallWatch:
         return now - self.since >= config.STALL_S
 
 
-def centering_plan(front: float | None, left: float | None, right: float | None, dead_end: bool = False) -> tuple[float, float]:
+def centering_plan(front: float | None, left: float | None, right: float | None) -> tuple[float, float]:
     """Wie weit zentrieren vor einer Drehung: (zurück in cm, seitlicher Versatz in cm, > 0 = nach links schieben).
-    Sackgasse: immer auf Kachelmitte. Sonst nur, wenn eine Ecke anstoßen würde (vorne < TURN_FRONT_MIN_CM, Seite <
-    TURN_SIDE_MIN_CM), und dann nur so weit wie nötig. Kein Echo oder offene Fläche (nichts unter WALL_THRESHOLD_CM): (0, 0)."""
+    Nur, wenn eine Ecke anstoßen würde (vorne < TURN_FRONT_MIN_CM, Seite < TURN_SIDE_MIN_CM), und dann nur so weit wie
+    nötig. Kein Echo oder offene Fläche (nichts unter WALL_THRESHOLD_CM): (0, 0)."""
     values = [v for v in (front, left, right) if v is not None]
-    if dead_end:
-        if None in (front, left, right):
-            return 0.0, 0.0
-        side = (left - right) / 2                           # > 0: zu nah an der rechten Wand, nach links
-        return max(0.0, config.FRONT_CENTER_CM - front), side if abs(side) > config.DEAD_END_SIDE_MIN_CM else 0.0
     if not values or min(values) >= config.WALL_THRESHOLD_CM:
         return 0.0, 0.0
     back = 0.0
@@ -450,8 +445,6 @@ class RealRobot(RobotInterface):
         self.walls = {side: v is not None and v < config.WALL_THRESHOLD_CM for side, v in values.items()}
         self.trace("wände", werte=values, wände=self.walls)
         self._wall_values = values
-        if all(self.walls.values()):
-            self._center_before_turn(values, dead_end=True)
         self.blind_streak = self.blind_streak + 1 if all(v is None for v in values.values()) else 0
         self.on_change()
         if self.blind_streak >= config.US_BLIND_STOP:
@@ -460,13 +453,12 @@ class RealRobot(RobotInterface):
             raise SensorsBlind(config.US_BLIND_WARN)
         return self.walls
 
-    def _center_before_turn(self, values: dict, dead_end: bool = False):
-        """Vor dem Drehen mittig setzen, damit die Ecken (Drehkreis 12,8 cm) nicht an die Wände stoßen, auch in der
-        Sackgasse: vorne auf den Kachelmitten-Abstand zurück (Auslaufen ohne Bremse schiebt ihn zu nah an die Wand)
+    def _center_before_turn(self, values: dict):
+        """Vor dem Drehen mittig setzen, damit die Ecken (Drehkreis 12,8 cm) nicht an die Wände stoßen: vorne auf den Kachelmitten-Abstand zurück (Auslaufen ohne Bremse schiebt ihn zu nah an die Wand)
         und seitlich mittig, indem er um einen kleinen Winkel von der näheren Wand weg dreht, schräg zurücksetzt und
         wieder gerade dreht. Die Entscheidung steht in `centering_plan`."""
         front, left, right = values["front"], values["left"], values["right"]
-        back, side = centering_plan(front, left, right, dead_end)
+        back, side = centering_plan(front, left, right)
         wants_back = back > 0
         rear = self._rear_room(front)
         back = min(back, rear)
@@ -477,7 +469,7 @@ class RealRobot(RobotInterface):
             if dist * math.sin(math.radians(angle)) < config.DEAD_END_SIDE_MIN_CM - 1e-9:
                 angle = dist = 0.0                              # hinten zu wenig Platz: Seitenkorrektur würde nichts bringen
         ahead = False
-        if side and not dist and not wants_back and not dead_end and self.front_free_cm is not None:
+        if side and not dist and not wants_back and self.front_free_cm is not None:
             # hinten nichts bekannt (z.B. nach Rückwärtsfahren), vorne frei: schräg nach VORNE statt zurück
             room = self.front_free_cm if front is None else min(self.front_free_cm, front - config.TURN_FRONT_MIN_CM)
             dist = min(abs(side) / math.sin(math.radians(config.DEAD_END_ANGLE_DEG)), config.DEAD_END_MAX_BACK_CM,
@@ -487,16 +479,12 @@ class RealRobot(RobotInterface):
             else:
                 dist = 0.0
         extra = max(0.0, back - dist * math.cos(math.radians(angle))) if not ahead else 0.0   # reicht der schräge Weg nicht nach hinten
-        if dead_end:
-            self.trace("sackgasse", vorne=front, seite=side, zurück=back, winkel=angle, strecke=dist, gerade=extra,
-                       rueckraum=rear)
-        elif dist or extra >= 0.5:
+        if dist or extra >= 0.5:
             self.trace("zentriert_vor_drehung", vorne=front, links=left, rechts=right, seite=side, zurück=back,
                        winkel=angle, strecke=dist, gerade=extra, rueckraum=rear, **({"vorwärts": True} if ahead else {}))
         if dist == 0.0 and extra < 0.5:
             return
-        self.set_action("setzt in der Sackgasse zurück" if dead_end else "Zentriert vor Drehung",
-                        f"{max(dist, extra):.0f} cm")
+        self.set_action("Zentriert vor Drehung", f"{max(dist, extra):.0f} cm")
         self._wall_values = None
         if angle and ahead:
             turn = -angle if side > 0 else angle                # nach links schieben, vorwärts = erst nach links drehen
@@ -511,7 +499,7 @@ class RealRobot(RobotInterface):
             self._rotate(-turn)
         if extra >= 0.5:
             self.drive_cm(-extra)
-        elif not dead_end and not ahead and (forward := dist * math.cos(math.radians(angle)) - back) >= 0.5:
+        elif not ahead and (forward := dist * math.cos(math.radians(angle)) - back) >= 0.5:
             self.drive_cm(forward)          # nur seitlich nötig: wieder vor, sonst steht er nach dem Drehen versetzt
 
     def _rear_room(self, front: float | None) -> float:
