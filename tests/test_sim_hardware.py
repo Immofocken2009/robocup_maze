@@ -136,6 +136,21 @@ class DrivingTest(unittest.TestCase):
         self.assertIn(result.status, (MoveStatus.BLOCKED, MoveStatus.OK))
         self.assertLess(robot.time(), config.TIME_LIMIT_S)
 
+    def test_off_center_and_skewed_towards_wall_arrives(self):
+        """2,5 cm außermittig und 6° schräg zur Wand hin (Kante nahe der Wand): die Fahrt kommt ohne Abbruch an
+        (Lenkung bei Wandkontakt sofort, sonst Zurücksetzen und Wegdrehen)."""
+        for sign in (1, -1):                # rechte bzw. linke Wand
+            with self.subTest(wand="rechts" if sign > 0 else "links"):
+                hw = SimHardware(corridor(4))
+                hw.body.x += sign * 2.5
+                hw.body.heading = sign * 6.0
+                robot = SimDrivingRobot(hw)
+                robot.start_clock()
+                result = robot.forward({TileType.BLACK})
+                self.assertIs(result.status, MoveStatus.OK)
+                self.assertAlmostEqual(hw.body.y, 1.5 * TILE, delta=3.0)
+                self.assertLess(abs(hw.body.x - 0.5 * TILE), 4.0)
+
 
 class ExploreTest(unittest.TestCase):
     def check(self, world: SimWorld, hw: SimHardware, explorer: Explorer):

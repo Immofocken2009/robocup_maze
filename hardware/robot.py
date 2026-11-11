@@ -95,13 +95,24 @@ class Steering:
         self.enc_ref = 0.0
         self.corr = 0.0
         self.corr_at = 0.0
+        self.touch: dict[str, float | None] = {"left": None, "right": None}   # gefahrene cm, seit der Kontakt besteht
+        self.contact: str | None = None     # Seite, die bei der letzten Messung an der Wand schleifte
+        self._jump = False                  # nächste Lenkung ohne Begrenzung (Kontakt)
 
     def side(self, side: str, cm: float | None, travelled: float, enc: tuple[float, float]) -> float:
         """Neue Messung einer Seite. travelled: gefahrene cm, enc: Encodergrad seit dem Start."""
         other = "right" if side == "left" else "left"
         prev = self.last[side]
         self.last[side] = cm
-        if cm is None or cm > config.STEER_SIDE_MAX_CM:
+        contact = cm is not None and cm <= config.STEER_CONTACT_CM
+        self.contact = side if contact else None
+        if contact:                                     # Kante schleift an der Wand: sofort ernst nehmen
+            self.trusted[side] = True
+            self.pending[side] = None
+            if self.touch[side] is None:
+                self.touch[side] = travelled
+            self._jump = True
+        elif cm is None or cm > config.STEER_SIDE_MAX_CM:
             self.trusted[side] = False
             self.pending[side] = None
         elif self.trusted[side]:
@@ -116,13 +127,28 @@ class Steering:
         elif self.pending[side] is not None and abs(cm - self.pending[side]) <= config.STEER_STEADY_CM:
             self.trusted[side] = True                   # zweite passende Messung: zählt wieder
             self.pending[side] = None
-            if self.trusted[other]:
+            if self.trusted[other] and not self._near(other):
                 self.width = cm + self.last[other]
         else:
             self.pending[side] = cm
-        if self.trusted["left"] and self.trusted["right"] and self.width <= config.CORRIDOR_MAX_CM:
+        if not contact:
+            self.touch[side] = None
+        if self.trusted["left"] and self.trusted["right"] and self.width <= config.CORRIDOR_MAX_CM \
+                and not self._near("left") and not self._near("right"):     # schleifende Seite verfälscht B nicht
             self.corridor = self.width
         return self._control(travelled, enc, new_sample=True)
+
+    def _near(self, side: str) -> bool:
+        cm = self.last[side]
+        return cm is not None and cm <= config.STEER_CONTACT_CM
+
+    def sticking(self, travelled: float) -> str | None:
+        """Seite, die schon länger als STEER_CONTACT_DIST_CM Fahrt ununterbrochen an der Wand schleift."""
+        for side in ("left", "right"):
+            start = self.touch[side]
+            if start is not None and travelled - start > config.STEER_CONTACT_DIST_CM:
+                return side
+        return None
 
     def hold(self, travelled: float, enc: tuple[float, float]) -> float:
         """Zwischen zwei Seitenmessungen (ohne Seitenwand wird über die Encoder weiter geregelt)."""
@@ -137,6 +163,10 @@ class Steering:
         left = self.last["left"] if self.trusted["left"] else None
         right = self.last["right"] if self.trusted["right"] else None
         half = self.corridor / 2
+        if left is not None and self._near("left"):     # Kontakt: nur diese Wand zählt, Abstand B / 2
+            return "left", _grid_offset(left, half)
+        if right is not None and self._near("right"):
+            return "right", -_grid_offset(right, half)
         if left is not None and right is not None and left + right <= config.CORRIDOR_MAX_CM:
             return "both", (left - right) / 2           # Gang: links und rechts gleich
         if left is not None and (right is None or left <= right):
@@ -173,6 +203,9 @@ class Steering:
         self.raw = raw
         # Lenkänderung pro gefahrenem cm begrenzen: kein Ruck, auch nicht bei einer Fehlmessung
         allowed = config.STEER_SLEW_DPS_PER_CM * max(0.0, travelled - self.corr_at)
+        if new_sample and self._jump:                   # Kontakt: sofort von der Wand weglenken
+            allowed = float("inf")
+        self._jump = False
         self.corr += _clamp(_clamp(raw, config.STEER_MAX_DPS) - self.corr, allowed)
         self.corr_at = travelled
         return self.corr
@@ -185,6 +218,7 @@ class Steering:
                 "zählt_links": self.trusted["left"], "zählt_rechts": self.trusted["right"],
                 "wartet_links": self.pending["left"], "wartet_rechts": self.pending["right"],
                 "breite": self.width, "gang": self.corridor, "modus": self.mode,
+                "kontakt": self.contact,
                 "abweichung": self.offset, "schräg": self.slope,
                 "p": config.STEER_KP * self.offset if pd else None,
                 "d": config.STEER_KD * self.slope if pd else None,
@@ -406,12 +440,14 @@ class RealRobot(RobotInterface):
         self.trace("vorwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm)
 
         l0, r0 = self.motors.positions()
+        base = 0.0                              # schon gefahrene cm vor l0/r0 (nach dem Zurücksetzen bei Wandkontakt neu gesetzt)
         steering = Steering(self.corridor_cm)
         heading = HeadingEstimate()
         for side in ("left", "right"):          # erste Seitenmessung, zählt nach der zweiten
             cm = self.us.measure(side)
-            steering.side(side, cm, 0.0, (0.0, 0.0))
-            self.trace("seite", seite=side, cm=cm, gefahren=0.0, **steering.values())
+            steering.side(side, cm, base, (0.0, 0.0))
+            self.trace("seite", seite=side, cm=cm, gefahren=base, **steering.values())
+        tries = 0                               # Zurücksetzen wegen Schleifen an der Wand
         self.set_action("fährt vorwärts", f"{stop_text}, {STEER_TEXT[steering.mode]}")
         order = cycle(("front", "left", "front", "right"))
         corr, mode = 0.0, steering.mode
@@ -420,7 +456,7 @@ class RealRobot(RobotInterface):
 
         while True:
             self._check()
-            travelled = self._travelled(l0, r0)
+            travelled = base + self._travelled(l0, r0)
             l, r = self.encoders
             heading.track(travelled, self._eff(l0, r0))
 
@@ -435,14 +471,14 @@ class RealRobot(RobotInterface):
                     self.motors.float()
                     self.floor = tile
                     self.set_action(f"{FLOOR_NAMES[tile]} erkannt", "fährt zurück")
-                    self.drive_cm(-self._travelled(l0, r0))
+                    self.drive_cm(-(base + self._travelled(l0, r0)))
                     return MoveResult(MoveStatus.AVOIDED, tile)
 
             # Ultraschall: abwechselnd vorne und seitlich
             if self.us.ready():
                 side = next(order)
                 cm = self.us.measure(side)
-                travelled = self._travelled(l0, r0)
+                travelled = base + self._travelled(l0, r0)
                 if side == "front":
                     grid = stop_distance(cm, travelled)
                     stop_at = grid or stop_at       # jede Messung neu ins Raster
@@ -456,8 +492,36 @@ class RealRobot(RobotInterface):
                     self.trace("seite", seite=side, cm=cm, gefahren=travelled, schräg_proben=len(heading.samples),
                                **steering.values())
 
-            # Ketten blockiert: nicht ewig weiterdrücken, zurück und als Wand melden
-            if stall.stalled(self.encoders):
+            # Schleift an einer Seitenwand (Encoder zeigen es nicht): zurücksetzen, von der Wand weg drehen, weiterfahren
+            touching = steering.sticking(travelled)
+            if touching and tries < config.CONTACT_MAX_TRIES:
+                tries += 1
+                self.motors.float()
+                name = "links" if touching == "left" else "rechts"
+                self.trace("schleift", seite=touching, gefahren=travelled, versuch=tries)
+                self.set_action(f"Schleift {name}", "setzt zurück")
+                self.drive_cm(-config.CONTACT_BACK_CM)
+                self._rotate(config.CONTACT_ANGLE_DEG if touching == "left" else -config.CONTACT_ANGLE_DEG)
+                # Fenster neu: Encoder, Lenkung und Schrägstandschätzung beginnen nach dem Wegdrehen von vorn
+                # (die Drehung läge sonst als falscher Schrägstand in den alten Messungen)
+                base += self._travelled(l0, r0)
+                l0, r0 = self.encoders
+                corridor = steering.corridor
+                steering = Steering(corridor)
+                steering.corr_at = base
+                heading = HeadingEstimate()
+                heading.at = base
+                for side in ("left", "right"):
+                    cm = self.us.measure(side)
+                    steering.side(side, cm, base, (0.0, 0.0))
+                    self.trace("seite", seite=side, cm=cm, gefahren=base, **steering.values())
+                corr, mode = 0.0, steering.mode
+                stall = StallWatch(self.clock)
+                self.set_action("fährt vorwärts", f"{stop_text}, {STEER_TEXT[steering.mode]}")
+                continue
+
+            # Ketten blockiert (oder schleift trotz Zurücksetzen): nicht ewig weiterdrücken, zurück und als Wand melden
+            if stall.stalled(self.encoders) or touching:
                 self.motors.float()
                 self.trace("blockiert", gefahren=travelled, encoder=self.encoders)
                 self.set_action("Ketten blockiert", "fährt zurück")
@@ -486,7 +550,7 @@ class RealRobot(RobotInterface):
         self.motors.float()
         self.corridor_cm = steering.corridor
         l, r = self.encoders
-        heading.track(self._travelled(l0, r0), self._eff(l0, r0))
+        heading.track(base + self._travelled(l0, r0), self._eff(l0, r0))
         skew = heading.degrees()
         fix = 0.0
         if skew is not None and abs(skew) >= config.HEADING_FIX_MIN_DEG:

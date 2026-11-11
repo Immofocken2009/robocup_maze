@@ -337,6 +337,18 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   vordere Ecke zur näheren Wand (ab ca. 12° stößt sie an). **Bekannte Grenzen:** der Roboter steht danach bis ca. 11 cm hinter
   der Kachelmitte (die nächste Fahrt korrigiert über den Abstand vorne, ohne Wand in Sicht nur nach Encoder: dann ca. so viel
   zu kurz). In der Fahrphysik hängt er ohne das Zurücksetzen bei 2,7 cm Versatz und 4 cm Abstand vorne beim Wenden (Ecke streift, Ketten rutschen), mit Zurücksetzen dreht er sauber 180° (Test `DeadEndTest`). Nicht auf dem echten Roboter geprüft.
+- **Wandkontakt beim Fahren** (entschieden 2026-11-11, Vorgabe Projektinhaber nach Auswertung der Läufe 15:42–15:46): In 12 von 47
+  Fahrten schleifte die Kante an einer Seitenwand (Seitenwert 1,9 cm, Sensor sitzt 2 cm von der Kante nach innen), teils 20 cm lang,
+  meist nach einer 90°-Drehung; die Encoder zeigen das nicht (Ketten rutschen durch), und die Lenkung wartete auf zwei passende
+  Messungen und lenkte solange auch zur Wand hin. Jetzt zwei Teile: **(a)** Seitenwert <= `STEER_CONTACT_CM` (2,5 cm): diese Seite zählt
+  sofort, nur sie bestimmt die Abweichung (Abstand B / 2 wie bei „eine Seite fehlt“, kein D-Anteil), die Lenkänderungs-Begrenzung
+  entfällt für diese Messung, und B (`corridor`) wird mit der schleifenden Seite nicht nachgeführt; in der Aufzeichnung steht
+  `kontakt` (links/rechts) in den Lenkwerten. **(b)** Bleibt eine Seite über mehr als `STEER_CONTACT_DIST_CM` (10 cm Fahrt nach
+  Encoder) ununterbrochen im Kontakt, setzt `forward` um `CONTACT_BACK_CM` (5 cm) zurück, dreht um `CONTACT_ANGLE_DEG` (8°) von der Wand
+  weg und **fährt zur Kachelmitte weiter** (nicht als Wand melden); Lenkung, Schrägstand-Schätzung und Stillstandswächter beginnen neu,
+  die Strecke läuft weiter (`base`), der Haltepunkt nach Abstand vorne bleibt. Ereignis: Aktion „Schleift links/rechts“ und Rechenwert
+  `schleift` in der Aufzeichnung. Höchstens `CONTACT_MAX_TRIES` (2) Versuche je Fahrt, danach wie „Ketten blockiert“ (zurück,
+  als Wand melden). Nicht auf dem echten Roboter geprüft; in der Simulation selten ausgelöst (Sensor misst dort kaum unter 2,5 cm).
 - **Reiter „Einstellungen“ (Lenkung)** (entschieden 2026-11-10, Vorgabe Projektinhaber): fünfter Reiter, stellt die Stärke der
   Lenkung beim Geradeausfahren ein: `STEER_KP` (Lenkstärke), `STEER_KD` (Dämpfung), `STEER_MAX_DPS` (größte Lenkung),
   `STEER_SLEW_DPS_PER_CM` (Lenkänderung); Liste, Bereiche und Hilfetexte in `config.STEER_SETTINGS`. Regler + Zahlenfeld,

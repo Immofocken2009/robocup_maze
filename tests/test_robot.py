@@ -672,6 +672,94 @@ class SteeringTest(unittest.TestCase):
         drive(s, [C + 7] * 4, [None] * 4)      # nahe Wand: unbegrenzt
         self.assertEqual(s.offset, 7)
 
+    def test_contact_trusted_at_once_without_slew_limit(self):
+        """Seitenwert 1,9 cm (Kante an der Wand) bei bis dahin ferner Wand: gilt sofort, Lenkung weg von der Wand,
+        ohne die Begrenzung der Lenkänderung."""
+        s = Steering()
+        drive(s, [FAR] * 3, [C] * 3)
+        before = s.corr
+        corr = s.side("left", 1.9, 13.0, (0.0, 0.0))
+        self.assertTrue(s.trusted["left"])
+        self.assertEqual(s.contact, "left")
+        self.assertEqual(s.values()["kontakt"], "left")
+        self.assertLess(corr, 0)                                   # zu weit links -> nach rechts lenken
+        self.assertGreater(before - corr, config.STEER_SLEW_DPS_PER_CM * 1 + 1)    # mehr als die Begrenzung erlaubt
+        self.assertAlmostEqual(corr, -min(config.STEER_MAX_DPS, abs(s.raw)), places=6)
+        s.side("right", C, 15.0, (0.0, 0.0))
+        self.assertIsNone(s.contact)
+        self.assertEqual(s.corridor, config.CORRIDOR_CM)           # schleifende Seite verfälscht B nicht
+
+    def test_contact_right_steers_left(self):
+        s = Steering()
+        drive(s, [C] * 3, [FAR] * 3)
+        self.assertGreater(s.side("right", 1.9, 13.0, (0.0, 0.0)), 0)
+
+
+class WallContactTest(unittest.TestCase):
+    """Schleifen an einer Seitenwand: Seitenwert dauerhaft 1,9 cm, die Encoder laufen normal."""
+
+    class Scrape(FakeUltrasonic):
+        def __init__(self, body, side, until_x=float("inf")):
+            super().__init__(body)
+            self.side, self.until_x = side, until_x
+
+        def measure(self, side):
+            cm = super().measure(side)
+            if side == self.side and self.body.x < self.until_x and cm is not None:
+                cm = 1.9
+                self.last[side] = cm
+            return cm
+
+    def run_forward(self, side, until_x):
+        body = Body(wall_cm=None)
+        robot = RealRobot(FakeMotors(body), self.Scrape(body, side, until_x), FakeColor(body))
+        seen = []
+        robot.trace = lambda what, **v: seen.append((what, v))
+        return body, robot, seen, robot.forward(set())
+
+    def test_backs_off_turns_away_and_continues(self):
+        # Bei x < 8 schleift er rechts. Er hängt ab > 10 cm Strecke. Der Schleifwert endet nach dem Zurücksetzen.
+        body = Body(wall_cm=None)
+        us = self.Scrape(body, "right")
+        robot = RealRobot(FakeMotors(body), us, FakeColor(body))
+        seen = []
+        robot.trace = lambda what, **v: seen.append((what, v))
+        original = robot._rotate
+
+        def rotate(deg):
+            us.until_x = -1e9                     # nach dem Wegdrehen schleift nichts mehr
+            return original(deg)
+        robot._rotate = rotate
+        result = robot.forward(set())
+        self.assertIs(result.status, MoveStatus.OK)
+        hits = [v for what, v in seen if what == "schleift"]
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["seite"], "right")
+        self.assertGreater(hits[0]["gefahren"], config.STEER_CONTACT_DIST_CM)
+        self.assertFalse(any(what == "blockiert" for what, _ in seen))
+        self.assertAlmostEqual(body.x, TILE, delta=2.5)           # Ziel bleibt die Kachelmitte (Strecke berücksichtigt)
+        turns = [v["winkel"] for what, v in seen if what == "drehen"]
+        self.assertTrue(turns and all(w == -config.CONTACT_ANGLE_DEG for w in turns))   # rechts schleift: nach links
+
+    def test_left_turns_right(self):
+        body = Body(wall_cm=None)
+        us = self.Scrape(body, "left")
+        robot = RealRobot(FakeMotors(body), us, FakeColor(body))
+        seen = []
+        robot.trace = lambda what, **v: seen.append((what, v))
+        original = robot._rotate
+        robot._rotate = lambda deg: (setattr(us, "until_x", -1e9), original(deg))[1]
+        with mock.patch.object(config, "STEER_CONTACT_DIST_CM", 5.0):
+            robot.forward(set())
+        self.assertTrue(any(v["winkel"] == config.CONTACT_ANGLE_DEG for what, v in seen if what == "drehen"))
+
+    def test_gives_up_after_max_tries(self):
+        body, robot, seen, result = self.run_forward("right", float("inf"))
+        self.assertIs(result.status, MoveStatus.BLOCKED)
+        self.assertEqual(len([1 for what, _ in seen if what == "schleift"]), config.CONTACT_MAX_TRIES)
+        self.assertTrue(any(what == "blockiert" for what, _ in seen))
+        self.assertLess(body.x, 2.5)                              # zurück am Anfang
+
 
 if __name__ == "__main__":
     unittest.main()

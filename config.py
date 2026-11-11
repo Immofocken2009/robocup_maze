@@ -140,6 +140,13 @@ STEER_STEADY_CM = 1.5           # zurückkehrende Wand: 2 Messungen hintereinand
 STEER_GRID_MAX_CM = 2.0         # Lenken nach dem Kachelraster (Wand weiter als ca. 20 cm): Abweichung höchstens so viel.
                                 # Grund: ferne Wände messen ungenau (Schallkegel, Wandkanten); Läufe 2026-11-11: bis 7 cm
                                 # Abweichung, im Extremfall 25° Drehung während einer Fahrt
+STEER_CONTACT_CM = 2.5          # Seitenwert so nah oder näher: die Kante schleift an der Wand (Sensor sitzt 2 cm von der
+                                # Kante nach innen). Diese Seite zählt sofort (kein Warten auf die zweite Messung) und die
+                                # Lenkänderungs-Begrenzung gilt für diese Messung nicht. Läufe 2026-11-11: 12 von 47 Fahrten
+STEER_CONTACT_DIST_CM = 10.0    # bleibt ein Seitenwert so viele cm Fahrt ununterbrochen im Kontakt: hängt er, zurücksetzen
+CONTACT_BACK_CM = 5.0           # so weit zurücksetzen, wenn er schleift
+CONTACT_ANGLE_DEG = 8.0         # danach so weit von der Wand weg drehen (wie DEAD_END_ANGLE_DEG)
+CONTACT_MAX_TRIES = 2           # so oft je Fahrt zurücksetzen; danach wie "Ketten blockiert" (zurück, als Wand melden)
 STEER_SIDE_MAX_CM = 55.0        # Seitenwand weiter weg: zum Lenken zu ungenau
 CORRIDOR_CM = 2 * SIDE_CENTER_CM                    # Startwert Gangbreite B = links + rechts (wird gemessen)
 CORRIDOR_MAX_CM = CORRIDOR_CM + TILE_SIZE_CM / 2    # links + rechts größer = breiter Raum, nähere Wand zählt
