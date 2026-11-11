@@ -70,6 +70,12 @@ MOTOR_FLOAT_CHECK_S = 0.01  # Motoren stromlos: so lange warten, dann nachlesen,
 MOTOR_FLOAT_TRIES = 5       # so oft höchstens schicken (einzelne Nachrichten an den BrickPi3 gehen verloren)
 MOTOR_DEG_PER_CM = 18.29    # Encodergrad pro cm Fahrstrecke. Eingemessen 2026-11-04 (1802 Grad = 98,5 cm)
 MOTOR_DEG_PER_90 = 345.0    # Encodergrad je Kette für eine 90°-Drehung auf der Stelle. Eingemessen und bestätigt 2026-11-04 (360° am Stück)
+# Kettenfaktor (Drift-Ausgleich, nur beim Geradeausfahren): Drehzahl der rechten Kette mal diesem Wert
+# (> 1 = rechts schneller, gleicht Drift nach rechts aus). Einmessen: python3 -m tools.test_motors drift
+MOTOR_TRIM_RIGHT = 1.0
+TRACK_WIDTH_CM = 15.0       # Abstand der Kettenmitten (gemessen 2026-11-04); nur fürs Einmessen des Kettenfaktors,
+                            # der Drehkreis beim Drehen steckt weiter in MOTOR_DEG_PER_90
+DRIFT_TEST_CM = 100.0       # Strecke der Fahrt beim Einmessen des Kettenfaktors (tools.test_motors drift)
 
 # Drehzahlen, Encodergrad und Lenkwerte am 2026-11-04 auf MOTOR_DEG_PER_CM = 18,29 umgerechnet (vorher 30 geschätzt,
 # alles × 0,61): der Roboter fährt damit körperlich genauso wie in der Simulation eingestellt (ca. 13 cm/s).

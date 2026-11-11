@@ -26,6 +26,7 @@ from navigation.maze_map import TileType
 from navigation.robot_interface import MoveStatus
 from tools.calibrate_color import saved_colors
 from tools.calibrate_ultrasonic import fit_line
+from tools.test_motors import angle_from_offset, new_trim
 
 SPEEDUP = 4.0
 TILE = config.TILE_SIZE_CM
@@ -304,6 +305,51 @@ class ForwardTest(unittest.TestCase):
         body = Body(wall_cm=None, floors=[TileType.NORMAL, TileType.BLUE, TileType.NORMAL])
         result = make_robot(body).forward({TileType.BLACK})
         self.assertIs(result.floor, TileType.BLUE)
+
+
+class TrimTest(unittest.TestCase):
+    """Kettenfaktor MOTOR_TRIM_RIGHT: nur beim Geradeausfahren, nicht beim Drehen."""
+
+    def recorded(self, robot):
+        calls = []
+        original = robot.motors.set_dps
+        robot.motors.set_dps = lambda l, r: (calls.append((l, r)), original(l, r))[1]
+        return calls
+
+    def test_formula(self):
+        # 10° nach rechts auf 100 cm, Ketten 15 cm auseinander: rechte Kette 0,1745 · 15 / 100 = 2,6 % mehr Weg
+        self.assertAlmostEqual(new_trim(1.0, 10.0, 100.0, 15.0), 1.026, places=3)
+        self.assertEqual(new_trim(1.037, 0.0, 100.0, 15.0), 1.037)
+        self.assertLess(new_trim(1.0, -5.0, 100.0, 15.0), 1.0)          # nach links gedriftet: rechts langsamer
+        # Versatz 17,6 cm auf 100 cm = atan(0,352) = 19,4°; Versatz 8,8 cm = 10°
+        self.assertAlmostEqual(angle_from_offset(8.8, 100.0), 9.98, delta=0.05)
+        self.assertAlmostEqual(new_trim(1.0, angle_from_offset(8.8, 100.0), 100.0, 15.0), 1.026, places=3)
+
+    def test_forward_commands_right_track_faster_and_keeps_encoders_in_step(self):
+        with mock.patch.object(config, "MOTOR_TRIM_RIGHT", 1.05):
+            robot = make_robot(Body(wall_cm=None))
+            calls = self.recorded(robot)
+            robot.forward(set())
+        self.assertTrue(calls)
+        moving = [(l, r) for l, r in calls if l > 0 and r > 0]
+        self.assertAlmostEqual(sum(r / l for l, r in moving) / len(moving), 1.05, delta=0.02)
+        left, right = robot.motors.positions()
+        self.assertAlmostEqual(left, right / 1.05, delta=0.03 * left)   # wirksame Encoder im Gleichlauf
+
+    def test_drive_cm_in_step_with_trim(self):
+        with mock.patch.object(config, "MOTOR_TRIM_RIGHT", 1.05):
+            robot = make_robot(Body(wall_cm=None))
+            robot.drive_cm(40)
+        left, right = robot.motors.positions()
+        self.assertAlmostEqual(right / left, 1.05, delta=0.02)
+        self.assertAlmostEqual(left / config.MOTOR_DEG_PER_CM, 40, delta=2.0)
+
+    def test_turn_ignores_trim(self):
+        with mock.patch.object(config, "MOTOR_TRIM_RIGHT", 1.05):
+            robot = make_robot(Body(wall_cm=None))
+            calls = self.recorded(robot)
+            robot.turn_right()
+        self.assertTrue(all(abs(l) == abs(r) == config.TURN_SPEED_DPS for l, r in calls if l or r))
 
 
 class TurnAndButtonsTest(unittest.TestCase):

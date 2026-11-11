@@ -332,6 +332,20 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Lauf, kein Neustart nötig. Aufzeichnung: das Lesen (`robot.load_settings`) ist ein aufgezeichneter Eingang, beim Nachrechnen
   werden dieselben Werte wieder eingesetzt. Weitere `STEER_*`-Werte (D-Fenster, Encoder-Faktor, Breiten-Wächter) sind
   bewusst nicht einstellbar; bei Bedarf in `STEER_SETTINGS` ergänzen.
+- **Drift-Ausgleich Kettenfaktor** (entschieden 2026-11-11, Vorgabe Projektinhaber): Die rechte Kette legt pro Encodergrad weniger Weg
+  zurück als die linke (ca. 10° nach rechts auf 98,5 cm bei gleichen Encodern). `config.MOTOR_TRIM_RIGHT` (Standard 1,0) ist der
+  Faktor für die Drehzahl der rechten Kette (> 1 = rechts schneller). Wirkt **nur beim Geradeausfahren** (`RealRobot.forward` und
+  `drive_cm`, über `_straight`), nicht beim Drehen (`_rotate`, `MOTOR_DEG_PER_90` ist so eingemessen). Lenkung: links = Tempo − Korrektur,
+  rechts = (Tempo + Korrektur) · Faktor. **Encoder-Umrechnung:** überall beim Geradeausfahren, wo links und rechts verglichen oder gemittelt
+  werden, zählt rechts als (r − r0) / Faktor (`_eff`, `_travelled`: Gleichlauf, Lenkung im Modus „encoder“, Strecke, `HeadingEstimate.track`).
+  Der Faktor wird zur Laufzeit aus `config` gelesen, steht im Kopf der Aufzeichnung; keine neuen Hardware-Eingänge, Nachrechnen bleibt 1:1.
+  **Einmessen:** `python3 -m tools.test_motors drift` (Roboter fährt `DRIFT_TEST_CM` = 100 cm nach Encoder, danach Winkel oder seitlichen
+  Versatz s eingeben, θ ≈ atan(2·s/D) bei Versatz): neuer Faktor = alter · (1 + θ_rad · `TRACK_WIDTH_CM` / D) (`TRACK_WIDTH_CM` = 15 cm
+  Kettenmitten), Ausgabe als Zeile für `config.py`; Lauf wiederholen, bis er gerade fährt. **Wert noch nicht eingemessen** (Standard 1,0,
+  erwartet ca. 1,03–1,045). Die Simulation bildet die Drift mit `DRIFT_BIAS` (4,3 %) nach; Faktor 1/(1 − 0,043) gleicht sie aus
+  (Richtungsfehler je Kachel ohne Lenkung 4,98° statt 1,38°). **Messergebnisse aus der Simulation** (ermittelt 2026-11-11, Erkundung
+  mit Drift, Rauschen und Schlupf): Läufe komplett „einfach“ 15/24 mit Faktor statt 9/24 ohne, „sonderboeden“ 11/16 statt 1/16;
+  ohne Drehfehler (Auslaufen/Schlupf beim Drehen) 21/24 bzw. 16/16. `ExploreTest.test_noise_and_slip` läuft jetzt mit Drift und Faktor.
 - **Ultraschall komplett ausgefallen erkennen** (entschieden 2026-11-10, Vorgabe Projektinhaber): Am 2026-11-10 lieferten
   alle drei Sensoren gleichzeitig fast nur „kein Echo“ (Aufzeichnung 14:23: vorne 162 von 170 ohne Echo, die übrigen
   Werte nur 2,6–8 cm = Störimpulse; derselbe Code lief nach dem Neustart normal) und der Roboter fuhr blind acht Kacheln
@@ -538,14 +552,15 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 ## Offene Fragen an den Projektinhaber
 
-- **Erkundung bricht mit der echten Drift/Schlupf in der Simulation ein** (2026-11-10): nur 3 von 6 bzw. 1 von 6 Läufen komplett.
-  Ursachen suchen und beheben (Drift ausgleichen z.B. Faktor pro Kette, Orientierung nach Fehlfahrten wiederfinden,
-  Strecke neu einmessen: `MOTOR_DEG_PER_CM` bei normalem Tempo ca. 20,8?). Das Gyro würde die Drift beim Geradeausfahren auffangen.
+- **Erkundung bricht mit der echten Drift/Schlupf in der Simulation teils ein** (2026-11-10): ohne Ausgleich nur 3 von 6 bzw. 1 von 6
+  Läufen komplett; mit Kettenfaktor besser (siehe „Drift-Ausgleich Kettenfaktor“), aber noch nicht immer. Weiter: Orientierung nach
+  Fehlfahrten wiederfinden, Strecke neu einmessen (`MOTOR_DEG_PER_CM` bei normalem Tempo ca. 20,8?). Das Gyro würde die Drift auffangen.
 - **Simulation übernimmt die Einstellungen des Reiters „Einstellungen“ nicht** (nur `main.py` liest `data/settings.json`).
   Soll die Simulation sie nutzen, damit man Lenkwerte dort ausprobieren kann?
 
-- Drift beim Geradeausfahren: ca. 10° nach rechts auf 98,5 cm, obwohl beide Encoder gleich liefen. Mechanik prüfen
-  (Kettenspannung, etwas schleift)? Wiederholbar? Ausgleich (z.B. Faktor pro Kette) oder Seitenwände/Gyro?
+- Drift beim Geradeausfahren: ca. 10° nach rechts auf 98,5 cm, obwohl beide Encoder gleich liefen. Ausgleich per Kettenfaktor ist
+  eingebaut (2026-11-11); **Einmessen steht aus** (`python3 -m tools.test_motors drift`). Wiederholbar? Mechanik prüfen
+  (Kettenspannung, etwas schleift)?
 - Schrägstand-Schätzung aus den Seitenwänden unterschätzt in der Fahrphysik (ohne Rauschen) um ca. 40 %
   (aus 10° Startschräge: geschätzt −0,66°, wirklich −1,10°), der Fehler wächst mit der Lenkbewegung.
   Vermutete Ursache: links/rechts werden abwechselnd gemessen, die Abweichung nutzt eine ältere Seite, die

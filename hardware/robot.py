@@ -412,7 +412,7 @@ class RealRobot(RobotInterface):
             self._check()
             travelled = self._travelled(l0, r0)
             l, r = self.encoders
-            heading.track(travelled, (l - l0, r - r0))
+            heading.track(travelled, self._eff(l0, r0))
 
             # Boden: schwarz/rot vor der Kachelmitte erkennen
             now = self.clock.monotonic()
@@ -439,8 +439,8 @@ class RealRobot(RobotInterface):
                     self.trace("vorne", cm=cm, gefahren=travelled, raster=grid, halt_bei=stop_at)
                 else:
                     l, r = self.encoders
-                    heading.track(travelled, (l - l0, r - r0))
-                    corr = steering.side(side, cm, travelled, (l - l0, r - r0))
+                    heading.track(travelled, self._eff(l0, r0))
+                    corr = steering.side(side, cm, travelled, self._eff(l0, r0))
                     if steering.mode == "both":
                         heading.sample(steering.offset)
                     self.trace("seite", seite=side, cm=cm, gefahren=travelled, schräg_proben=len(heading.samples),
@@ -461,13 +461,14 @@ class RealRobot(RobotInterface):
                 break
             speed = config.DRIVE_SPEED_DPS
             l, r = self.encoders
-            corr = steering.hold(travelled, (l - l0, r - r0))
+            corr = steering.hold(travelled, self._eff(l0, r0))
             self.trace("fahrt", gefahren=travelled, halt_bei=stop_at, rest=remaining, tempo=speed,
-                       korrektur=corr, modus=steering.mode, links_dps=speed - corr, rechts_dps=speed + corr)
+                       korrektur=corr, modus=steering.mode, links_dps=speed - corr,
+                       rechts_dps=(speed + corr) * config.MOTOR_TRIM_RIGHT)
             if steering.mode != mode:
                 mode = steering.mode
                 self.detail = f"{stop_text}, {STEER_TEXT[mode]}"
-            self.motors.set_dps(speed - corr, speed + corr)
+            self.motors.set_dps(*self._straight(speed - corr, speed + corr))
             self.motion = {"forward_cm": round(travelled, 1)}
             self.on_change()
             self.clock.sleep(LOOP_S)
@@ -475,7 +476,7 @@ class RealRobot(RobotInterface):
         self.motors.float()
         self.corridor_cm = steering.corridor
         l, r = self.encoders
-        heading.track(self._travelled(l0, r0), (l - l0, r - r0))
+        heading.track(self._travelled(l0, r0), self._eff(l0, r0))
         skew = heading.degrees()
         fix = 0.0
         if skew is not None and abs(skew) >= config.HEADING_FIX_MIN_DEG:
@@ -539,7 +540,18 @@ class RealRobot(RobotInterface):
     def _travelled(self, l0: float, r0: float) -> float:
         self.encoders = self.motors.positions()
         l, r = self.encoders
-        return ((l - l0) + (r - r0)) / 2 / config.MOTOR_DEG_PER_CM
+        return ((l - l0) + (r - r0) / config.MOTOR_TRIM_RIGHT) / 2 / config.MOTOR_DEG_PER_CM
+
+    def _eff(self, l0: float, r0: float) -> tuple[float, float]:
+        """Wirksame Encoder seit dem Start beim Geradeausfahren: die rechte Kette ist um den Kettenfaktor
+        schneller befohlen, rechts zählt daher (r − r0) / MOTOR_TRIM_RIGHT (gleicher Weg wie links)."""
+        l, r = self.encoders
+        return l - l0, (r - r0) / config.MOTOR_TRIM_RIGHT
+
+    @staticmethod
+    def _straight(left: float, right: float) -> tuple[float, float]:
+        """Drehzahlen beim Geradeausfahren: rechts mal Kettenfaktor (Drift-Ausgleich, nicht beim Drehen)."""
+        return left, right * config.MOTOR_TRIM_RIGHT
 
     def _measure_floor(self) -> TileType:
         """Im Stand: frische Messungen (über die Roboter-Uhr gewartet), die häufigste Farbe gewinnt."""
@@ -592,10 +604,10 @@ class RealRobot(RobotInterface):
             if remaining <= 0 or stall.stalled(self.encoders):
                 break
             speed = config.DRIVE_SPEED_DPS
-            l, r = self.encoders
-            corr = _clamp(config.STEER_ENC_K * ((l - l0) - (r - r0)), config.STEER_MAX_DPS)
+            el, er = self._eff(l0, r0)
+            corr = _clamp(config.STEER_ENC_K * (el - er), config.STEER_MAX_DPS)
             self.trace("strecke", ziel=cm, gefahren=done, rest=remaining, tempo=speed, korrektur=corr)
-            self.motors.set_dps(direction * speed - corr, direction * speed + corr)
+            self.motors.set_dps(*self._straight(direction * speed - corr, direction * speed + corr))
             self.on_change()
             self.clock.sleep(LOOP_S)
         self.motors.float()

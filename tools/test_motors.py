@@ -4,9 +4,11 @@ Starten (im Projektordner), in dieser Reihenfolge:
   python3 -m tools.test_motors richtung   # dreht jede Kette kurz: läuft sie vorwärts?  -> MOTOR_DIRECTION
   python3 -m tools.test_motors strecke    # fährt 60 cm nach Encoder, du misst nach     -> MOTOR_DEG_PER_CM
   python3 -m tools.test_motors drehen     # dreht 4 × 90° rechts, du schätzt den Winkel -> MOTOR_DEG_PER_90
+  python3 -m tools.test_motors drift      # fährt 100 cm geradeaus, du misst die Drift  -> MOTOR_TRIM_RIGHT
 Das Programm sagt am Ende, welcher Wert in config.py eingetragen werden soll.
 Abbrechen jederzeit mit Strg+C, die Motoren gehen dann aus.
 """
+import math
 import sys
 import time
 
@@ -57,8 +59,40 @@ def turn(robot: RealRobot):
     print(f"\nIn config.py eintragen:\nMOTOR_DEG_PER_90 = {value:.0f}")
 
 
+def new_trim(trim: float, angle_deg: float, distance_cm: float = config.DRIFT_TEST_CM,
+             track_cm: float = config.TRACK_WIDTH_CM) -> float:
+    """Neuer Kettenfaktor aus dem Winkel, um den er auf distance_cm nach rechts weggedriftet ist (negativ = links).
+    Ein Winkel θ auf der Strecke D heißt: die Ketten (Abstand track) legen einen Bogen mit Wegunterschied
+    θ · track zurück, die rechte Kette muss also um θ · track / D mehr Weg machen."""
+    return trim * (1 + math.radians(angle_deg) * track_cm / distance_cm)
+
+
+def angle_from_offset(offset_cm: float, distance_cm: float = config.DRIFT_TEST_CM) -> float:
+    """Winkel in Grad aus dem seitlichen Versatz am Ende (Bogen: Versatz s = D · θ / 2, also θ ≈ atan(2·s/D))."""
+    return math.degrees(math.atan(2 * offset_cm / distance_cm))
+
+
+def drift(robot: RealRobot):
+    input(f"Startpunkt und Richtung markieren (Lineal/Kante), Enter = {config.DRIFT_TEST_CM:g} cm geradeaus fahren "
+          f"(Kettenfaktor jetzt {config.MOTOR_TRIM_RIGHT:.3f}) ")
+    robot.drive_cm(config.DRIFT_TEST_CM)
+    while True:
+        way = input("Messen als (w)inkel in Grad oder seitlicher (v)ersatz in cm? ").strip().lower()[:1]
+        if way in ("w", "v"):
+            break
+    if way == "w":
+        angle = ask_number("Winkel zur Startrichtung in Grad (positiv = nach rechts gedreht, 0 = gerade): ")
+    else:
+        offset = ask_number("Seitlicher Versatz am Ende in cm (positiv = nach rechts): ")
+        angle = angle_from_offset(offset)
+        print(f"  entspricht ca. {angle:.1f}°")
+    value = new_trim(config.MOTOR_TRIM_RIGHT, angle)
+    print(f"\nIn config.py eintragen:\nMOTOR_TRIM_RIGHT = {value:.3f}")
+    print("Danach den Lauf wiederholen, bis er gerade fährt (Winkel ca. 0).")
+
+
 def main():
-    steps = {"richtung": direction, "strecke": distance, "drehen": turn}
+    steps = {"richtung": direction, "strecke": distance, "drehen": turn, "drift": drift}
     if len(sys.argv) != 2 or sys.argv[1] not in steps:
         print(__doc__)
         return

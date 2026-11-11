@@ -88,6 +88,28 @@ class DrivingTest(unittest.TestCase):
         self.assertAlmostEqual(seen[0]["geschätzt"], 4.0, delta=0.2)
         self.assertAlmostEqual(seen[0]["dreht"], -seen[0]["geschätzt"])
 
+    def test_trim_cancels_drift_in_corridor(self):
+        """Drift nach rechts (DRIFT_BIAS 4,3 % weniger Weg rechts, mit Kettenschlupf): ohne Kettenfaktor muss die Lenkung
+        in jeder Kachel dagegen halten, mit Faktor 1/(1 − 0,043) läuft er ohne Lenkung fast gerade. Verglichen wird der
+        Richtungsfehler nach einer Kachel ohne Lenkung."""
+        def run(trim):
+            hw = SimHardware(corridor(4), slip=True)
+            hw.body.rng = random.Random(1)
+            robot = SimDrivingRobot(hw)
+            robot.start_clock()
+            with mock.patch.object(config, "MOTOR_TRIM_RIGHT", trim), mock.patch.object(config, "STEER_KP", 0.0), \
+                    mock.patch.object(config, "STEER_KD", 0.0), mock.patch.object(config, "HEADING_FIX_MIN_DEG", 999.0):
+                result = robot.forward({TileType.BLACK})
+            self.assertIs(result.status, MoveStatus.OK)
+            return hw.body.heading
+        # Ohne Lenkung (KP = KD = 0) wirkt nur die Drift.
+        without = run(1.0)
+        with_trim = run(1 / (1 - 0.043))
+        # 4,3 % auf 30 cm = 1,29 cm Wegunterschied / 15 cm Kettenabstand = 0,086 rad = 4,9 Grad (gemessen 4,98),
+        # mit Faktor bleibt nur der zufällige Schlupf je Kette (gemessen 1,38 Grad, seed 1)
+        self.assertGreater(abs(without), 4.0)
+        self.assertLess(abs(with_trim), abs(without) / 2)
+
     def test_blocked_tracks_do_not_hang(self):
         """Schräg gegen die Seitenwand: die Fahrt endet als 'blockiert' statt endlos zu drücken."""
         hw = SimHardware(corridor(4))
@@ -114,10 +136,9 @@ class ExploreTest(unittest.TestCase):
                 self.check(world, *explore(world))
 
     def test_noise_and_slip(self):
-        """Ohne die gemessene Drift nach rechts: mit ihr (DRIFT_BIAS) verliert er in 2 von 5 Läufen die Orientierung,
-        siehe CLAUDE.md, Offene Fragen."""
+        """Mit der gemessenen Drift nach rechts (DRIFT_BIAS), ausgeglichen durch den Kettenfaktor."""
         world = SimWorld.load("einfach")
-        with mock.patch("simulation.sim_hardware.DRIFT_BIAS", 0.0):
+        with mock.patch.object(config, "MOTOR_TRIM_RIGHT", 1 / (1 - 0.043)):
             for seed in range(2):
                 with self.subTest(seed=seed):
                     self.check(world, *explore(world, noise=True, slip=True, seed=seed))
