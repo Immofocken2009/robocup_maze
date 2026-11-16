@@ -91,9 +91,14 @@ def load_calibration(path: Path = config.COLOR_CALIBRATION_FILE) -> tuple[dict[s
     """Kalibrierwerte laden. Ergebnis: (Farben, Warnung)."""
     if not path.exists():
         return None, "Farbsensor nicht kalibriert (python3 -m tools.calibrate_color)"
-    data = json.loads(path.read_text())
-    colors = {name: tuple(values) for name, values in data["colors"].items()}
-    settings = data.get("settings", {})
+    try:
+        data = json.loads(path.read_text())
+        colors = {name: tuple(values) for name, values in data["colors"].items()}
+        settings = data.get("settings", {})
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        # Unlesbare Datei: wie beim Ultraschall Warnung statt Ausnahme (sonst käme ColorSensor() nie zustande und der
+        # Roboter würde nie starten). Ohne Kalibrierung gilt jeder Boden als weiß (read_tile -> NORMAL).
+        return None, f"Farbkalibrierung unlesbar ({path.name}), Boden gilt als weiß (python3 -m tools.calibrate_color)"
     if (settings.get("integration_ms") != config.COLOR_INTEGRATION_MS
             or settings.get("gain") != config.COLOR_GAIN):
         return colors, "Farbsensor mit anderen Einstellungen kalibriert, bitte neu kalibrieren"

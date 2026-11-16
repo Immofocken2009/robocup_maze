@@ -13,6 +13,7 @@ import call
 import config
 import hardware.motors
 from hardware.motors import Motors
+from hardware.color_sensor import load_calibration as load_color_calibration
 from hardware.ultrasonic import load_calibration
 from tools.calibrate_color import saved_colors
 from tools.calibrate_ultrasonic import fit_line
@@ -99,6 +100,19 @@ class ColorCalibrationTest(unittest.TestCase):
             self.assertEqual(saved_colors(path), {"white": (1, 2, 3, 4)})
             path.write_text(json.dumps({"settings": {**settings, "gain": -1}, "colors": {"white": [1, 2, 3, 4]}}))
             self.assertIsNone(saved_colors(path))
+
+    def test_unreadable_file_gives_warning_instead_of_exception(self):
+        """Kaputte colors.json: Warnung, ohne Kalibrierung weiterfahren (sonst startet der Roboter nie)."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "colors.json"
+            for text in ("{kaputt", '{"settings": {}}', '{"colors": 5}', '{"colors": {"white": 7}}'):
+                path.write_text(text)
+                colors, warning = load_color_calibration(path)
+                self.assertIsNone(colors, text)
+                self.assertIn("unlesbar", warning)
+            settings = {"integration_ms": config.COLOR_INTEGRATION_MS, "gain": config.COLOR_GAIN}
+            path.write_text(json.dumps({"settings": settings, "colors": {"white": [1, 2, 3, 4], "black": [0, 0, 0, 1]}}))
+            self.assertEqual(load_color_calibration(path), ({"white": (1, 2, 3, 4), "black": (0, 0, 0, 1)}, None))
 
 
 class CallTest(unittest.TestCase):
