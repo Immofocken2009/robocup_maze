@@ -20,6 +20,26 @@
    Ausführung mit `model: "sonnet"`, für Denkaufgaben mit `model: "fable"`. Das Modell der Hauptsitzung stellt der Projektinhaber
    in der App ein (Claude kann es für die eigene Sitzung nicht umstellen). Das Agent-Tool kennt nur den Namen „sonnet“, nicht die
    Version: ob dahinter genau 4.6 steckt, ist nicht prüfbar.
+   **Ergänzung 2026-11-16 (Projektinhaber):** Kleine, klar abgegrenzte Änderungen dürfen von **mehreren Haiku-Agenten parallel**
+   ausgeführt werden (`model: "haiku"`), je Agent eine Datei bzw. ein Modul, siehe „Parallel arbeiten mit mehreren Agenten“.
+
+6. **Parallel arbeiten mit mehreren Agenten** (Vorgabe Projektinhaber 2026-11-16, Code dafür am 2026-11-16 aufgeteilt):
+   - **Eine Datei gehört zu einem Zeitpunkt genau einem Agenten.** Die Hauptsitzung (Chef) verteilt die Aufgaben so, dass sich die
+     Dateilisten nicht überschneiden, und schreibt in jeden Auftrag die erlaubten Dateien hinein („touch ONLY …“). Was ein Agent
+     außerhalb seiner Liste ändert, wird verworfen (`git checkout -- Datei`).
+   - **Nur die Hauptsitzung** ändert `CLAUDE.md`, `config.py`, committet und pusht. Agenten committen nie.
+   - **Schnittstellen sind die Modulgrenzen** (siehe Projektstruktur): Lenkung in `hardware/steering.py`, Haltepunkt/Zentrieren in
+     `hardware/drive_math.py`, `RealRobot` in `hardware/robot.py`; Webseite je Reiter eine JS-Datei und je API-Bereich ein
+     Python-Modul in `web/`; Tests je Modul eine Datei, gemeinsame Nachbauten in `tests/fakes.py`. Wer eine Funktion in ein anderes
+     Modul verschiebt, lässt den Namen am alten Ort importierbar (Re-Export mit `# noqa: F401`), damit andere Agenten nichts anpassen müssen.
+   - **Jeder Agent prüft selbst:** `python3 -m pyflakes <seine Dateien>` und die Tests seines Moduls (`python3 -m unittest tests.test_xyz`);
+     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 180 Tests, ca. 80 s) und bei
+     Änderungen an `web/` den Browser-Test (siehe Befehle). Die Tests laufen auch ohne Pi: `brickpi3`, `lgpio`, `smbus2` werden
+     optional importiert (fehlen sie, schlägt erst das Anlegen der Hardware-Objekte fehl, auf dem Pi ändert sich nichts).
+   - **Nachrechnen bleibt 1:1:** Reihenfolge und Inhalt der Hardware-Aufrufe (`clock`, `motors`, `us`, `color`) und der `trace`-Aufrufe
+     im Fahrcode dürfen Agenten nicht ändern, sonst lassen sich alte Aufzeichnungen nicht mehr nachrechnen (`tools/replay_run.py`).
+   - **Agenten nur mit Aufträgen, die ohne Entscheidung auskommen** (Regel 4): Verschieben, Umbenennen, Tests ergänzen, einen klar
+     beschriebenen Fehler beheben. Alles mit Entscheidungsbedarf bleibt bei der Hauptsitzung bzw. beim Projektinhaber.
 
 ## Hardware (Stand 2026-11-03)
 
@@ -104,7 +124,10 @@ robocup/
 │   ├── fan.py             #   Lüfter am Fan-Anschluss, CPU-Temperatur
 │   ├── run_log.py         #   Aufzeichnung eines Laufs (Hardware-Grenze + Rechenwerte), Lesen
 │   ├── gyro.py            #   MPU-6050: Drehrate aus dem FIFO, Nullpunkt, Winkel  (GEPLANT, noch umzusetzen)
-│   └── robot.py           #   echter Roboter: setzt navigation/robot_interface.py um
+│   ├── steering.py        #   Lenkung geradeaus (Steering, PD-Regler) und Schrägstand-Schätzung (HeadingEstimate), ohne Hardware
+│   ├── drive_math.py      #   Haltepunkt im Kachelraster (stop_distance*), Stillstandswächter, centering_plan, ohne Hardware
+│   └── robot.py           #   echter Roboter (RealRobot): setzt navigation/robot_interface.py um; Ausnahmen RunStopped, TimeUp, ...
+│                          #   (Namen aus steering.py und drive_math.py bleiben über hardware.robot importierbar)
 ├── navigation/            # reine Logik, kennt keine Hardware
 │   ├── maze_map.py        #   die Karte
 │   ├── pathfinding.py     #   Wegplanung
@@ -115,15 +138,31 @@ robocup/
 │   ├── sim_hardware.py    #   Fahrphysik: nachgebildete Ketten, Ultraschall, Farbsensor, Sim-Uhr
 │   ├── maze_generator.py  #   Zufallslabyrinthe nach Regelwerk 2026
 │   └── mazes/             #   Testlabyrinthe als JSON
-├── web/                   # Webseite (flach)
-│   ├── server.py          #   aiohttp: liefert Seite + WebSocket, WLAN-Verwaltung über nmcli (/api/network)
-│   ├── index.html
-│   ├── app.js
+├── web/                   # Webseite (flach; seit 2026-11-16 je Reiter/Bereich eine Datei)
+│   ├── server.py          #   aiohttp: Seite ausliefern, WebSocket /ws (Browser) und /robot (main.py), Start; re-exportiert die
+│   │                      #   Namen der Module darunter (bestehende Importe aus web.server funktionieren weiter)
+│   ├── api.py             #   gemeinsame JSON-Helfer (_json, _finite, _body)
+│   ├── sim_session.py     #   SimSession (Fahrphysik-Simulation, Zustand für alle Browser), RobotRelay (Verbindung zu main.py)
+│   ├── recordings.py      #   Ansicht „Aufzeichnung“: Läufe aus logs/ aufbereiten, /api/runs
+│   ├── network.py         #   Reiter „Netzwerk“: WLAN über nmcli, /api/network
+│   ├── settings.py        #   Reiter „Einstellungen“: Lenkwerte, /api/settings
+│   ├── index.html         #   lädt die Skripte in dieser Reihenfolge (gewöhnliche Skripte, kein Modulsystem):
+│   ├── common.js          #   Hilfsfunktionen, Verbindung, Farben, MapCanvas, PoseAnim, setRows
+│   ├── view_robot.js      #   Ansicht „Roboter“
+│   ├── view_sim.js        #   Ansicht „Simulation“ (+ Tempo-Schieber)
+│   ├── view_log.js        #   Ansicht „Aufzeichnung“ (Chart, logView)
+│   ├── view_net.js        #   Reiter „Netzwerk“ (netApi, net)
+│   ├── view_settings.js   #   Reiter „Einstellungen“ (benutzt netApi aus view_net.js)
+│   ├── app.js             #   nur noch Verdrahtung: VIEWS, showView, Start
 │   └── style.css
 ├── tools/                 # Testprogramme (Motoren, Sensoren, Farbkalibrierung), calibrate_ultrasonic.py
 │                          #   (Ultraschall kalibrieren), replay_run.py (Lauf nachrechnen),
 │                          #   test_gyro.py (GEPLANT, noch umzusetzen)
-├── tests/                 # automatische Tests der Logik (unittest)
+├── tests/                 # automatische Tests (unittest), je Modul eine Datei:
+│                          #   fakes.py (nachgebaute Hardware, kein Testmodul), test_robot.py (RealRobot: vorwärts, Taster,
+│                          #   Einstellungen, blind), test_steering.py, test_centering.py, test_hardware.py (Motors.float,
+│                          #   Kalibrierprogramme, call.py), test_run_log.py, test_recordings.py, test_network.py,
+│                          #   test_sim_hardware.py, test_explorer.py, test_pathfinding.py, test_maze_map.py, test_maze_generator.py, test_fan.py
 ├── data/                  # Kalibrierwerte (colors.json, ultrasonic.json), Einstellungen der Webseite (settings.json)
 └── logs/                  # Aufzeichnungen der echten Läufe (ein Lauf = eine .jsonl.gz-Datei, nicht in Git)
 ```
@@ -536,6 +575,17 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   die **Motorleistung in % pro Kette** (vom BrickPi3, kein echter Stromwert). Ein Strommodul
   (z.B. INA226) wurde angeboten, ist aber vorerst nicht gewünscht.
 
+### Aufteilung in kleinere Module (2026-11-16, Vorgabe Projektinhaber)
+
+Damit mehrere Agenten parallel ändern können, wurden die großen Dateien ohne Verhaltensänderung aufgeteilt (Code nur verschoben,
+Namen am alten Ort weiter importierbar): `hardware/robot.py` (991 → 695 Zeilen) → `hardware/steering.py`, `hardware/drive_math.py`;
+`web/server.py` (1039 → 161) → `web/api.py`, `web/sim_session.py`, `web/recordings.py`, `web/network.py`, `web/settings.py`;
+`web/app.js` (1493 → 43) → `common.js` + je Ansicht eine `view_*.js` (alle gewöhnliche Skripte mit `"use strict"`, Reihenfolge in
+`index.html`; `server.py` liefert sie über `STATIC_FILES`); `tests/test_robot.py` und `tests/test_run_log.py` → je Modul eine Datei,
+gemeinsame Nachbauten in `tests/fakes.py`. Geprüft: 180 Tests unverändert grün, Seite im Browser mit allen Reitern fehlerfrei,
+Simulationslauf über den WebSocket. Außerdem: `main.py` beendet sich nicht mehr bei einer ungültigen Nachricht der Webseite
+(vorher unbehandelte Ausnahme im Verbindungs-Task, jetzt Warnung im Log) und berechnet die Grenzkacheln je Zustand nur einmal.
+
 ### Gestaltung der Webseite
 
 - **Schlicht**, soll nicht nach typischer KI-Seite aussehen.
@@ -646,11 +696,37 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
   `sudo install -m 644 /home/immo/robocup/robocup-network.rules /etc/polkit-1/rules.d/50-robocup-network.rules`
   prüfen: `nmcli general permissions | grep -i "modify.system\|network-control\|wifi.scan"` muss `yes` zeigen
   rückgängig: `sudo rm /etc/polkit-1/rules.d/50-robocup-network.rules`
-- Tests: `python3 -m unittest discover -s tests`
+- Tests: `python3 -m unittest discover -s tests` (auch ohne Pi; ein Modul: `python3 -m unittest tests.test_steering`)
+- Stil/Importe prüfen: `python3 -m pyflakes *.py hardware navigation simulation web tools tests` (meldet nur die beabsichtigten
+  Re-Exporte in `web/server.py`)
+- Webseite nach Änderungen an `web/` prüfen: `python3 -m web.server --port 8790` starten, Seite im Browser laden, alle fünf
+  Reiter anklicken, Browser-Konsole ohne `ReferenceError`/`TypeError` (ohne nmcli sind 503 von `/api/network` normal).
 - Lauf nachrechnen: `python3 -m tools.replay_run` (neueste Aufzeichnung) oder `python3 -m tools.replay_run logs/<Datei>`,
   alles als Text: `--text`
 
 ## Offene Fragen an den Projektinhaber
+
+**Fehlerfunde aus der Durchsicht am 2026-11-16** (nicht behoben, weil die Behebung das Verhalten ändert; Entscheidung Projektinhaber):
+- `RealRobot.drive_cm`: `front_free_cm` wird um `+ cm` verändert, müsste aber `− cm` sein (vorwärts fahren verbraucht freien Raum
+  vorne, rückwärts gewinnt ihn). Wirkung klein: nach einer 90°-Drehung wird der Wert ohnehin auf None gesetzt; falsch ist er nur nach
+  dem Zurücksetzen in `forward` (Schleifen/Rutschen/Schwarz) und bei der Vorfahrt in `_center_before_turn` nach vorne.
+  Vorschlag: `self.front_free_cm = max(0.0, self.front_free_cm - cm)`.
+- `hardware/color_sensor.load_calibration`: eine kaputte `data/colors.json` (ungültiges JSON, fehlender Schlüssel `colors`) wirft eine
+  Ausnahme, `ColorSensor()` schlägt fehl und `main.py` versucht alle 5 s neu („Hardware antwortet nicht“), der Roboter startet nie.
+  Beim Ultraschall gibt es stattdessen eine Warnung und er misst ohne Korrektur. Entscheiden: so lassen (lieber nicht fahren als
+  ohne Farbkalibrierung in Schwarz fahren) oder wie beim Ultraschall Warnung + weiterfahren.
+- `main.RobotProgram.wait_for`: wirft `poll_sensors()` im Stand eine Ausnahme (z.B. I2C-/SPI-Fehler), stirbt der Arbeits-Thread still;
+  das Programm läuft weiter, reagiert aber auf keinen Taster mehr, die Webseite zeigt den alten Zustand. Vorschlag: Ausnahme loggen,
+  Status „error“ anzeigen, weiter warten (Hardware neu anlegen?).
+- `main.RobotProgram.state_msg`: `r.motors.battery()` und `r.motors.power()` laufen ohne Fehlerfang im Arbeits-Thread aus der
+  Regelschleife (über `on_change`); ein BrickPi3-Lesefehler bricht dann den ganzen Lauf mit „Fehler im Lauf“ ab, obwohl nur die
+  Anzeige betroffen wäre. Vorschlag: Fehler fangen, letzten Wert behalten, Warnung.
+- `main.RobotProgram.shutdown`: wird der Dienst beendet, während der Roboter im Lack of Progress auf K3 wartet, bleibt `wait_for`
+  in der Tasterschleife (prüft `_interrupt` nicht), die Aufzeichnung bekommt keinen `end`-Eintrag (Inhalt bis zum letzten Sync bleibt lesbar).
+- `tools/test_motors.py drehen`: `robot.turn_right()` zentriert seit 2026-11-11 vor jeder Drehung (misst Wände, setzt evtl. zurück).
+  Beim Einmessen von `MOTOR_DEG_PER_90` im freien Raum passiert nichts, in der Nähe von Wänden verfälscht es die Messung; ggf. `_rotate(90)` benutzen.
+- `hardware/run_log.Recorder._wrap` reicht nur Positionsargumente durch (`fn(*args)`); heute ruft niemand die aufgezeichneten
+  Methoden mit Schlüsselwortargumenten auf, ein späterer Aufruf `us.measure(side="front")` würde aber mit TypeError scheitern.
 
 - **Erkundung bricht mit der echten Drift/Schlupf in der Simulation teils ein** (2026-11-10): ohne Ausgleich nur 3 von 6 bzw. 1 von 6
   Läufen komplett; mit Kettenfaktor besser (siehe „Drift-Ausgleich Kettenfaktor“), aber noch nicht immer. Weiter: Orientierung nach
