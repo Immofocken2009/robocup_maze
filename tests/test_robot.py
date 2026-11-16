@@ -85,6 +85,60 @@ class SensorsBlindTest(unittest.TestCase):
         self.assertIn("Ultraschall", explorer.mode)
 
 
+class ProgramTest(unittest.TestCase):
+    """main.RobotProgram ohne Hardware: Warten auf Taster, Anzeige-Zustand (nichts läuft im Hintergrund)."""
+
+    def make(self):
+        import asyncio
+        import main
+        loop = asyncio.new_event_loop()
+        self.addCleanup(loop.close)
+        program = main.RobotProgram(loop)
+        body = Body(wall_cm=None)
+        program.robot = RealRobot(FakeMotors(body), FakeUltrasonic(body), FakeColor(body))
+        program.robot.motors.battery = lambda: 11.5
+        program.robot.motors.power = lambda: (0, 0)
+        program.robot.us.warning = program.robot.color.warning = None
+        return program
+
+    def test_sensor_error_while_waiting_does_not_kill_the_thread(self):
+        import threading
+        program = self.make()
+        calls = []
+
+        def poll():
+            calls.append(1)
+            if len(calls) == 1:
+                raise OSError("I2C weg")
+        program.robot.poll_sensors = poll
+        with mock.patch.object(config, "IDLE_SENSOR_S", 0.05):
+            threading.Timer(0.3, program.presses.put, ["start"]).start()
+            self.assertEqual(program.wait_for("start"), "start")
+        self.assertGreater(len(calls), 1)                       # nach dem Fehler weiter gelesen
+        self.assertIsNone(program.error)                        # und der Fehler ist wieder weg
+
+    def test_closing_ends_the_lack_of_progress_wait_like_k2(self):
+        program = self.make()
+        program.closing = True
+        with mock.patch.object(config, "IDLE_SENSOR_S", 0.05):
+            self.assertEqual(program.wait_for("lop", "stop"), "stop")
+
+    def test_state_msg_survives_brickpi_read_error(self):
+        program = self.make()
+        msg = program.state_msg()
+        self.assertEqual(msg["sensors"]["battery"], 11.5)
+        program._battery_t = 0.0
+        program.robot.motors.battery = mock.Mock(side_effect=OSError("SPI"))
+        with mock.patch.object(config, "BATTERY_READ_S", 0.0):
+            msg = program.state_msg()
+        self.assertEqual(msg["sensors"]["battery"], 11.5)       # letzter Wert bleibt
+        self.assertTrue(any("BrickPi3" in w for w in msg["warnings"]))
+        program.battery = None                                  # noch nie gelesen: kein Absturz
+        msg = program.state_msg()
+        self.assertIsNone(msg["sensors"]["battery"])
+        self.assertFalse(msg["battery_low"])
+
+
 class SettingsTest(unittest.IsolatedAsyncioTestCase):
     """Lenk-Einstellungen der Webseite (data/settings.json)."""
 

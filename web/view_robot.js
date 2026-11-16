@@ -100,7 +100,7 @@ const robot = {
         $(`rm-${side}`).style.width = `${p === null ? 0 : Math.min(100, Math.abs(p))}%`;
       });
       const bat = $("rb-battery");
-      bat.textContent = `${se.battery.toFixed(2)} V`;
+      bat.textContent = se.battery === null ? "–" : `${se.battery.toFixed(2)} V`;
       bat.classList.toggle("low", s.battery_low);
     }
 

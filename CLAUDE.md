@@ -586,6 +586,24 @@ gemeinsame Nachbauten in `tests/fakes.py`. Geprüft: 180 Tests unverändert grü
 Simulationslauf über den WebSocket. Außerdem: `main.py` beendet sich nicht mehr bei einer ungültigen Nachricht der Webseite
 (vorher unbehandelte Ausnahme im Verbindungs-Task, jetzt Warnung im Log) und berechnet die Grenzkacheln je Zustand nur einmal.
 
+### Robustheit des Roboterprogramms (2026-11-16, Vorgabe Projektinhaber nach der Durchsicht)
+
+- **Unlesbare `data/colors.json`** (kaputtes JSON, fehlende Schlüssel): `hardware/color_sensor.load_calibration` gibt wie beim
+  Ultraschall eine Warnung zurück („Farbkalibrierung unlesbar …, Boden gilt als weiß“) statt eine Ausnahme zu werfen. Vorher kam
+  `ColorSensor()` nie zustande und der Roboter startete nie. Ohne Kalibrierung gilt jeder Boden als weiß (`read_tile` → NORMAL).
+- **Sensorfehler im Stand** (`main.RobotProgram.wait_for`): wirft `poll_sensors()` eine Ausnahme, stirbt der Arbeits-Thread nicht
+  mehr; der Fehlertext steht in `error` (Webseite), wird einmal geloggt, und beim nächsten erfolgreichen Lesen wieder gelöscht.
+  Die Taster funktionieren weiter.
+- **Akku und Motorleistung nur Anzeige** (`main.RobotProgram.state_msg`): ein Lesefehler am BrickPi3 bricht den Lauf nicht mehr ab;
+  die letzten Werte bleiben, Warnung „BrickPi3 antwortet nicht (…), Akku und Motorleistung veraltet“. Vor der ersten Messung ist der
+  Akku `null` (Webseite zeigt „–“), `battery_low` dann False.
+- **Beenden während Lack of Progress** (`main.RobotProgram.shutdown`): `wait_for` gibt beim Beenden „stop“ zurück, wenn „stop“ erlaubt
+  ist (Warten auf K3 bzw. auf K1/K2 nach „Fertig“); der Lauf endet wie mit K2, die Aufzeichnung bekommt ihren `end`-Eintrag
+  (`flow lop_wait = stop`). Beim Warten auf K1 kehrt der Arbeits-Thread nicht zurück bzw. beendet sich (`worker` prüft `closing`).
+- **Aufzeichnung** (`hardware/run_log.Recorder._wrap`): Schlüsselwortargumente werden durchgereicht und als Feld `kw` mitgeschrieben
+  (nur wenn vorhanden; alte Aufzeichnungen und das Nachrechnen bleiben gleich, `tools/replay_run.py` prüft `kw` nicht).
+- Tests: `tests/test_robot.py` (`ProgramTest`), `tests/test_hardware.py`, `tests/test_run_log.py`.
+
 ### Gestaltung der Webseite
 
 - **Schlicht**, soll nicht nach typischer KI-Seite aussehen.
@@ -706,27 +724,13 @@ Quelle: [RCJ Rescue Maze Rules 2026](https://junior.robocup.org/wp-content/uploa
 
 ## Offene Fragen an den Projektinhaber
 
-**Fehlerfunde aus der Durchsicht am 2026-11-16** (nicht behoben, weil die Behebung das Verhalten ändert; Entscheidung Projektinhaber):
+**Fehlerfunde aus der Durchsicht am 2026-11-16**, noch offen (Behebung ändert Verhalten; Entscheidung Projektinhaber):
 - `RealRobot.drive_cm`: `front_free_cm` wird um `+ cm` verändert, müsste aber `− cm` sein (vorwärts fahren verbraucht freien Raum
   vorne, rückwärts gewinnt ihn). Wirkung klein: nach einer 90°-Drehung wird der Wert ohnehin auf None gesetzt; falsch ist er nur nach
   dem Zurücksetzen in `forward` (Schleifen/Rutschen/Schwarz) und bei der Vorfahrt in `_center_before_turn` nach vorne.
   Vorschlag: `self.front_free_cm = max(0.0, self.front_free_cm - cm)`.
-- `hardware/color_sensor.load_calibration`: eine kaputte `data/colors.json` (ungültiges JSON, fehlender Schlüssel `colors`) wirft eine
-  Ausnahme, `ColorSensor()` schlägt fehl und `main.py` versucht alle 5 s neu („Hardware antwortet nicht“), der Roboter startet nie.
-  Beim Ultraschall gibt es stattdessen eine Warnung und er misst ohne Korrektur. Entscheiden: so lassen (lieber nicht fahren als
-  ohne Farbkalibrierung in Schwarz fahren) oder wie beim Ultraschall Warnung + weiterfahren.
-- `main.RobotProgram.wait_for`: wirft `poll_sensors()` im Stand eine Ausnahme (z.B. I2C-/SPI-Fehler), stirbt der Arbeits-Thread still;
-  das Programm läuft weiter, reagiert aber auf keinen Taster mehr, die Webseite zeigt den alten Zustand. Vorschlag: Ausnahme loggen,
-  Status „error“ anzeigen, weiter warten (Hardware neu anlegen?).
-- `main.RobotProgram.state_msg`: `r.motors.battery()` und `r.motors.power()` laufen ohne Fehlerfang im Arbeits-Thread aus der
-  Regelschleife (über `on_change`); ein BrickPi3-Lesefehler bricht dann den ganzen Lauf mit „Fehler im Lauf“ ab, obwohl nur die
-  Anzeige betroffen wäre. Vorschlag: Fehler fangen, letzten Wert behalten, Warnung.
-- `main.RobotProgram.shutdown`: wird der Dienst beendet, während der Roboter im Lack of Progress auf K3 wartet, bleibt `wait_for`
-  in der Tasterschleife (prüft `_interrupt` nicht), die Aufzeichnung bekommt keinen `end`-Eintrag (Inhalt bis zum letzten Sync bleibt lesbar).
 - `tools/test_motors.py drehen`: `robot.turn_right()` zentriert seit 2026-11-11 vor jeder Drehung (misst Wände, setzt evtl. zurück).
   Beim Einmessen von `MOTOR_DEG_PER_90` im freien Raum passiert nichts, in der Nähe von Wänden verfälscht es die Messung; ggf. `_rotate(90)` benutzen.
-- `hardware/run_log.Recorder._wrap` reicht nur Positionsargumente durch (`fn(*args)`); heute ruft niemand die aufgezeichneten
-  Methoden mit Schlüsselwortargumenten auf, ein späterer Aufruf `us.measure(side="front")` würde aber mit TypeError scheitern.
 
 - **Erkundung bricht mit der echten Drift/Schlupf in der Simulation teils ein** (2026-11-10): ohne Ausgleich nur 3 von 6 bzw. 1 von 6
   Läufen komplett; mit Kettenfaktor besser (siehe „Drift-Ausgleich Kettenfaktor“), aber noch nicht immer. Weiter: Orientierung nach
