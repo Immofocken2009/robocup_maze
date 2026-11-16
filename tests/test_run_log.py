@@ -71,6 +71,26 @@ class RunLogTest(unittest.TestCase):
         self.assertTrue({"seite", "fahrt", "vorne", "drehen", "schräglage", "plan", "zeit", "wände"} <= calcs)
         self.assertIn("rückwärts", calcs)       # der Lauf enthält eine Rückwärtsfahrt (Aktion "B")
 
+    def test_instrumented_call_passes_keyword_arguments(self):
+        """Recorder._wrap reicht Schlüsselwortargumente durch und schreibt sie mit (Feld kw)."""
+        from hardware.run_log import Recorder
+
+        class Thing:
+            def measure(self, side, n=1):
+                return f"{side}:{n}"
+
+        thing, rec = Thing(), Recorder()
+        rec.start(self.path)
+        try:
+            rec.instrument(thing, "thing", ["measure"])
+            self.assertEqual(thing.measure("front", n=3), "front:3")
+            self.assertEqual(thing.measure("left"), "left:1")
+        finally:
+            rec.stop()
+        ios = [r for r in read_run(self.path)[0] if r["k"] == "io"]
+        self.assertEqual(ios[0], {**ios[0], "src": "thing.measure", "a": ["front"], "kw": {"n": 3}, "r": "front:3"})
+        self.assertNotIn("kw", ios[1])
+
     def test_replay_is_identical(self):
         record(self.path)
         same, report = replay_run(read_run(self.path)[0])

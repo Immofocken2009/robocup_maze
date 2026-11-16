@@ -162,17 +162,19 @@ class Recorder:
         robot.trace = self.calc
 
     def _wrap(self, src: str, fn, sparse: bool, extra):
-        def call(*args):
+        def call(*args, **kwargs):
             # Nur der äußerste Aufruf zählt (z.B. nicht die Uhr, die ein Sensor intern benutzt)
             if self._depth or not self.recording():
-                return fn(*args)
+                return fn(*args, **kwargs)
             self._depth += 1
             try:
-                result = fn(*args)
+                result = fn(*args, **kwargs)
             finally:
                 self._depth -= 1
             if not (sparse and result is None):
                 record = {"src": src, "a": jsonable(args), "r": jsonable(result)}
+                if kwargs:          # Schlüsselwortargumente: mitschreiben (heute ruft der Fahrcode alles positionell auf)
+                    record["kw"] = jsonable(kwargs)
                 if extra:
                     record.update(jsonable(extra()))
                 self.write("io", **record)
