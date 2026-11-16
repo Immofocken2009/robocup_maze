@@ -8,7 +8,10 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from smbus2 import SMBus
+try:
+    from smbus2 import SMBus
+except ImportError:     # Rechner ohne smbus2 (Simulation, Tests): ColorSensor() schlägt dann fehl
+    SMBus = None
 
 import config
 from navigation.maze_map import TileType

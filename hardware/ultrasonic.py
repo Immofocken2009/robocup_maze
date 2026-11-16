@@ -12,7 +12,10 @@ import threading
 import time
 from pathlib import Path
 
-import lgpio
+try:
+    import lgpio
+except ImportError:     # Rechner ohne lgpio (Simulation, Tests): Ultrasonic() schlägt dann fehl
+    lgpio = None
 
 import config
 

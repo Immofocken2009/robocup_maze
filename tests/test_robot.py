@@ -10,6 +10,7 @@ import math
 import sys
 import tempfile
 import time
+import types
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -439,7 +440,7 @@ class FakeBrickPi3:
 class MotorsFloatTest(unittest.TestCase):
     def make(self, lose: int) -> Motors:
         FakeBrickPi3.lose = 0
-        with mock.patch.object(hardware.motors.brickpi3, "BrickPi3", FakeBrickPi3):
+        with mock.patch.object(hardware.motors, "brickpi3", types.SimpleNamespace(BrickPi3=FakeBrickPi3)):
             motors = Motors()
         motors.bp.power = {p: 50 for p in motors.bp.power}       # beide Motoren laufen
         motors.bp.sent.clear()
