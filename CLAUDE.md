@@ -838,8 +838,8 @@ Zum Gyro (vor dem Umsetzen klären):
 - [ ] **Schlupf lernen (Punkt 6) und Seiten öfter messen (Punkt 8)**, vom Projektinhaber am 2026-11-11 beschlossen, **unfertig**: der Agent brach
   durch das Nutzungslimit ab. Der Zwischenstand (ungetestet, auf dem Stand vor dem Zusammenführen mit GitHub) liegt auf dem Branch
   `wip-schlupf-seiten`; er enthält `drive_ratio` (gelernter Wegfaktor für den Halt nach Encoder), `US_FRONT_SKIP`, `Ultrasonic.measure_pair` mit
-  Schalter `US_SIDES_TOGETHER` (Standard aus, Übersprechen noch ungeprüft) und die Korrektur des Vorzeichens von `front_free_cm` in `drive_cm`
-  (Vorwärtsfahren muss den freien Raum vorne verkleinern: `− cm` statt `+ cm`; **dieser Fehler steht im Hauptstand noch drin**). Beim Übernehmen
+  Schalter `US_SIDES_TOGETHER` (Standard aus, Übersprechen noch ungeprüft) (die Korrektur des Vorzeichens von
+  `front_free_cm` in `drive_cm` ist seit 2026-11-17 im Hauptstand, Test `FrontFreeTest`). Beim Übernehmen
   ist `hardware/robot.py` inzwischen aufgeteilt (siehe „Aufteilung in kleinere Module“), die Änderungen müssen von Hand dorthin übertragen werden.
 - [ ] **Gyro MPU-6050** anschließen und umsetzen wie unter „Gyro MPU-6050 – NOCH UMZUSETZEN“ beschrieben:
   `hardware/gyro.py`, `tools/test_gyro.py` (Achse, Vorzeichen, Skalierung einmessen; auch über `call.py`), Nutzung im Fahrcode

@@ -553,3 +553,15 @@ class StillTimeTest(unittest.TestCase):
         robot._front_fresh = 9.0
         robot.backward()
         self.assertEqual([v for what, v in self.seen if what == "rückwärts"][0]["vorne_quelle"], "wände")
+
+
+class FrontFreeTest(unittest.TestCase):
+    def test_drive_cm_updates_free_room_with_right_sign(self):
+        robot = make_robot(Body(wall_cm=None))
+        robot.front_free_cm = 20.0
+        robot.drive_cm(5)                       # vorwärts: vorne wird weniger frei
+        self.assertAlmostEqual(robot.front_free_cm, 15.0)
+        robot.drive_cm(-4)                      # zurück: vorne wird mehr frei
+        self.assertAlmostEqual(robot.front_free_cm, 19.0)
+        robot.drive_cm(30)                      # nie unter 0
+        self.assertEqual(robot.front_free_cm, 0.0)

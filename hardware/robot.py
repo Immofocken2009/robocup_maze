@@ -734,7 +734,7 @@ class RealRobot(RobotInterface):
         if cm < 0 and self.rear_free_cm is not None:
             self.rear_free_cm = max(0.0, self.rear_free_cm + cm)
         if self.front_free_cm is not None:
-            self.front_free_cm = max(0.0, self.front_free_cm + cm)
+            self.front_free_cm = max(0.0, self.front_free_cm - cm)    # vorwärts verkleinert den freien Raum vorne
         direction = 1 if cm >= 0 else -1
         l0, r0 = self.motors.positions()
         stall = StallWatch(self.clock)
