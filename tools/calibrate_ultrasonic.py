@@ -16,7 +16,10 @@ import statistics
 import sys
 from datetime import datetime
 
-import lgpio
+try:
+    import lgpio
+except ImportError:     # Rechner ohne lgpio: nur zum Importieren (call.py, Tests), Kalibrieren geht nur auf dem Pi
+    lgpio = None
 
 import config
 from hardware.ultrasonic import NAMES, SIDES, Ultrasonic

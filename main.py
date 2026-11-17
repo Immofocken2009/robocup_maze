@@ -102,6 +102,8 @@ class RobotProgram:
         self._parts: list = []
         self.battery: float | None = None
         self._battery_t = 0.0
+        self.motor_power: list = [None, None]
+        self.brick_warning: str | None = None   # BrickPi3 antwortet bei Akku/Leistung nicht (nur Anzeige)
         self._publish_t = 0.0
         self.latest: str | None = None              # letzter Zustand (für neue Verbindungen)
         self.ws: aiohttp.ClientWebSocketResponse | None = None
@@ -124,16 +126,28 @@ class RobotProgram:
         while not self.presses.empty():         # alte Tastendrücke verwerfen
             self.presses.get_nowait()
         while True:
+            if self.closing:
+                if "stop" in functions:         # Programm wird beendet: Lauf wie mit K2 abschließen (Aufzeichnung bekommt ihr Ende)
+                    return "stop"
+                time.sleep(config.IDLE_SENSOR_S)
+                continue
             try:
                 function = self.presses.get(timeout=config.IDLE_SENSOR_S)
                 if function in functions:
                     return function
             except queue.Empty:
                 pass
-            if not self.closing:
+            try:
                 with self.rec.paused():         # nur Anzeige, gehört nicht zum Lauf
                     self.robot.poll_sensors()
-                self.publish()
+            except Exception as exc:            # Sensor antwortet nicht: anzeigen und weiter warten, statt dass der Thread stirbt
+                text = f"Sensoren im Stand: {type(exc).__name__}: {exc}"
+                if text != self.error:
+                    log.error(text)
+                self.error = text
+            else:
+                self.error = None
+            self.publish()
 
     # --- Ablauf (Arbeits-Thread) ----------------------------------------------------
 
@@ -142,6 +156,8 @@ class RobotProgram:
             time.sleep(config.HARDWARE_RETRY_S)
         new_run = False
         while True:
+            if self.closing:
+                return
             if not new_run:
                 self.status = "start"
                 self.explorer = None
@@ -288,24 +304,36 @@ class RobotProgram:
         if msg["system"]["cpu_hot"]:
             msg["warnings"].append(f"CPU heiß ({fan.temp:.0f} °C)")
         if r:
-            if time.monotonic() - self._battery_t > config.BATTERY_READ_S:
-                self._battery_t = time.monotonic()
-                self.battery = r.motors.battery()
+            try:                # nur Anzeige: ein Lesefehler am BrickPi3 darf den Lauf nicht abbrechen, letzte Werte bleiben
+                if time.monotonic() - self._battery_t > config.BATTERY_READ_S:
+                    self._battery_t = time.monotonic()
+                    self.battery = r.motors.battery()
+                self.motor_power = list(r.motors.power())
+                self.brick_warning = None
+            except Exception as exc:
+                if self.brick_warning is None:
+                    log.warning("BrickPi3 antwortet nicht (Akku/Motorleistung): %s: %s", type(exc).__name__, exc)
+                self.brick_warning = f"BrickPi3 antwortet nicht ({type(exc).__name__}), Akku und Motorleistung veraltet"
+            battery = self.battery
+            low = battery is not None and battery < config.BATTERY_LOW_V
             msg.update(action=r.action, detail=r.detail, motion=r.motion,
                        detected={"walls": r.walls, "floor": r.floor.value if r.floor else None},
-                       sensors={**r.sensors(), "battery": round(self.battery, 2),
-                                "motor_power": list(r.motors.power())},
-                       battery_low=self.battery < config.BATTERY_LOW_V)
+                       sensors={**r.sensors(), "battery": round(battery, 2) if battery is not None else None,
+                                "motor_power": self.motor_power},
+                       battery_low=low)
             if r.color.warning:
                 msg["warnings"].append(r.color.warning)
             if r.us.warning:
                 msg["warnings"].append(r.us.warning)
             if r.us_blind():
                 msg["warnings"].append(config.US_BLIND_WARN)
-            if self.battery < config.BATTERY_LOW_V:
-                msg["warnings"].append(f"Akku schwach ({self.battery:.1f} V)")
+            if self.brick_warning:
+                msg["warnings"].append(self.brick_warning)
+            if low:
+                msg["warnings"].append(f"Akku schwach ({battery:.1f} V)")
         if e:
             maze = e.maze
+            frontier = maze.frontier()      # einmal berechnen (Karte und Zähler)
             msg.update(
                 mode=e.mode,
                 pose={"x": e.pos[0], "y": e.pos[1], "dir": int(e.heading)},
@@ -314,12 +342,12 @@ class RobotProgram:
                               for p, kind in maze.tiles.items()],
                     "walls": [{"x": p[0], "y": p[1], "dir": d.name, "wall": present}
                               for p, d, present in maze.walls()],
-                    "frontier": [list(p) for p in maze.frontier()],
+                    "frontier": [list(p) for p in frontier],
                     "planned": [list(p) for p in e.planned],
                     "checkpoint": list(e.last_checkpoint) if e.last_checkpoint else None,
                 },
                 events=list(e.events)[-30:],
-                stats={"visited": len(maze.visited), "frontier": len(maze.frontier())},
+                stats={"visited": len(maze.visited), "frontier": len(frontier)},
             )
         return msg
 
@@ -341,7 +369,10 @@ class RobotProgram:
                             await ws.send_str(self.latest)
                         async for msg in ws:
                             if msg.type == aiohttp.WSMsgType.TEXT:
-                                self.handle(json.loads(msg.data))
+                                try:
+                                    self.handle(json.loads(msg.data))
+                                except (ValueError, TypeError, AttributeError):
+                                    log.warning("Ungültige Nachricht von der Webseite: %s", msg.data)
                 except (aiohttp.ClientError, OSError):
                     pass
                 self.ws = None

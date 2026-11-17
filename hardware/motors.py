@@ -5,7 +5,10 @@ Alle Werte sind so umgerechnet, dass positiv = vorwärts heißt (config.MOTOR_DI
 import logging
 import time
 
-import brickpi3
+try:
+    import brickpi3
+except ImportError:     # Rechner ohne BrickPi3-Bibliothek (Simulation, Tests): Motors() schlägt dann fehl
+    brickpi3 = None
 
 import config
 
