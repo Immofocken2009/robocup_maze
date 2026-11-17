@@ -33,7 +33,7 @@
      Python-Modul in `web/`; Tests je Modul eine Datei, gemeinsame Nachbauten in `tests/fakes.py`. Wer eine Funktion in ein anderes
      Modul verschiebt, lässt den Namen am alten Ort importierbar (Re-Export mit `# noqa: F401`), damit andere Agenten nichts anpassen müssen.
    - **Jeder Agent prüft selbst:** `python3 -m pyflakes <seine Dateien>` und die Tests seines Moduls (`python3 -m unittest tests.test_xyz`);
-     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 243 Tests, ca. 85 s) und bei
+     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 262 Tests, ca. 105 s) und bei
      Änderungen an `web/` den Browser-Test (siehe Befehle). Die Tests laufen auch ohne Pi: `brickpi3`, `lgpio`, `smbus2` werden
      optional importiert (fehlen sie, schlägt erst das Anlegen der Hardware-Objekte fehl, auf dem Pi ändert sich nichts).
    - **Nachrechnen bleibt 1:1:** Reihenfolge und Inhalt der Hardware-Aufrufe (`clock`, `motors`, `us`, `color`) und der `trace`-Aufrufe
@@ -425,7 +425,7 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   weg und **fährt zur Kachelmitte weiter** (nicht als Wand melden); Lenkung, Schrägstand-Schätzung und Stillstandswächter beginnen neu,
   die Strecke läuft weiter (`base`), der Haltepunkt nach Abstand vorne bleibt. Ereignis: Aktion „Schleift links/rechts“ und Rechenwert
   `schleift` in der Aufzeichnung. Höchstens `CONTACT_MAX_TRIES` (2) Versuche je Fahrt, danach wie „Ketten blockiert“ (zurück,
-  als Wand melden). Nicht auf dem echten Roboter geprüft; in der Simulation selten ausgelöst (Sensor misst dort kaum unter 2,5 cm).
+  als Wand melden). **Seit 2026-11-17 mit Stufen, siehe „Rückzug in Stufen“.** Nicht auf dem echten Roboter geprüft; in der Simulation selten ausgelöst (Sensor misst dort kaum unter 2,5 cm).
 - **Vor der Drehung zentrieren** (entschieden 2026-11-11, Vorgabe Projektinhaber nach Auswertung der Läufe 15:42–15:46): Vor 15 von 22
   90°-Drehungen hatte eine Ecke höchstens 0,3 cm Luft, danach hatte die nächste Fahrt in 7 von 15 Fällen Wandkontakt. Jetzt prüft
   `RealRobot._turn` vor jeder 90°-Drehung (`_center_before_turn`, Entscheidung in `centering_plan`; Messwerte aus `read_walls`, sonst, z.B.
@@ -455,7 +455,7 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   **(b) Festfahren vorne:** am Ende von Lauf 2 meldete er die Kachel erreicht, obwohl die Ketten rutschten (Encoder 22 cm, Abstand vorne
   sank nur 9,5 cm). In `forward` werden die Vorne-Messungen mit Wand in Reichweite (dieselben wie für den Haltepunkt) als (Encoderstrecke,
   Abstand) gesammelt; sinkt der Abstand über die letzten `FRONT_STUCK_DIST_CM` (8 cm) um weniger als `FRONT_STUCK_RATIO` (0,5) · Strecke
-  (echt ca. 0,87), setzt er um `CONTACT_BACK_CM` zurück **ohne Wegdrehen** (Seite unbekannt) und fährt weiter. Steigt ein Wert um mehr als
+  (echt ca. 0,87), setzt er um `CONTACT_BACK_CM` zurück (damals ohne Wegdrehen, seit 2026-11-17 dreht er dabei weg, siehe „Rückzug in Stufen“) und fährt weiter. Steigt ein Wert um mehr als
   `STEER_STEADY_CM` (anderes Echo), beginnt das Fenster neu, ebenso nach jedem Zurücksetzen. Zählt mit `sticking` zusammen zu
   `CONTACT_MAX_TRIES`, danach wie „Ketten blockiert“. Aktion „Rutscht vorne“, Trace `rutscht` (erwartet = Encoderstrecke, gemessen =
   Abnahme). **(c) `sticking` robuster:** statt „ununterbrochen <= 2,5 cm“ gilt: seit mehr als `STEER_CONTACT_DIST_CM` beobachtet, und in den
@@ -518,6 +518,48 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Mit 60 Seeds gross: 36/60 (vorher) -> 30/60, mit 120 Seeds ca. 61 % -> 47 %; Einzeln abgeschaltet (60 Seeds): ohne Median 32, ohne Nachsetzen 32, ohne beide 33,
   ohne Ausgleichsgerade 30, ohne `median_fast` 27, ohne Wiederverwenden 29: keine einzelne Ursache erkennbar, im Rauschen (Streuung ca. ±4); gross ist ein chaotisches
   Labyrinth (andere Messfolge = anderer Zufall). Nicht auf dem echten Roboter geprüft.
+- **Encoder gegen Lesefehler absichern** (entschieden 2026-11-17, Vorgabe Projektinhaber nach dem Lauf 14:12): Der BrickPi3 lieferte bei 106,16 s für die
+  rechte Kette einmal 65323 statt ca. 10966; der Fahrcode hielt das für 1486 cm Strecke und meldete „angekommen“ nach 0,05 s, die Position war danach
+  eine Kachel falsch. Solche Einzelwerte gab es in 3 von 15 aufgezeichneten Läufen (immer rechts, eine Lesung). `RealRobot._positions()` liest die Encoder
+  für den Fahrcode (`forward`, `backward`, `_travelled`, `_rotate`, `drive_cm`) und verwirft einen Sprung über `ENC_JUMP_DEG` (400°) zwischen zwei
+  Lesungen: der letzte gute Wert bleibt (Trace `encoder_ausreisser`). Passen `ENC_RESYNC_AFTER` (3) verworfene Lesungen hintereinander zusammen
+  (untereinander höchstens `ENC_RESYNC_TOL_DEG` auseinander, z.B. Ketten von Hand bewegt), gilt der neue Wert mit angepasstem Versatz, die gezählte Strecke
+  springt nicht. Ohne zusätzliche Uhr-Aufrufe (Nachrechnen normaler Läufe bleibt gleich). `poll_sensors` (Anzeige im Stand, nicht aufgezeichnet) liest
+  weiter roh und ändert den Zustand des Filters nicht; `reset()` und `relocated()` setzen ihn zurück. Aufzeichnungen mit so einem Lesefehler
+  (15:04 am 2026-11-10, 15:44 und 14:12) rechnen sich nicht mehr 1:1 nach, weil der Filter ihn jetzt verwirft. Drei Verteidigungslinien in dieser
+  Reihenfolge: Filter, Rutsch-Erkennung in der Fahrschleife, Fortschrittsprüfung am Fahrtende.
+- **Fortschrittsprüfung am Fahrtende** (entschieden 2026-11-17): Beim Erreichen des Haltepunkts (Wand vorne in Reichweite, mindestens
+  `PROGRESS_MIN_CM` (15) Encoderstrecke) hält er an, misst den Abstand vorne und prüft ihn mit `_front_slips` gegen die Reihe der Messungen der Fahrt (der
+  Abstand vor der Fahrt gehört mit in die Reihe): sinkt er um weniger als `FRONT_STUCK_RATIO` mal die Strecke und steigt nicht um mehr als `STEER_STEADY_CM`,
+  zählt das wie „Rutscht vorne“ (Trace `kein_fortschritt`), sonst „angekommen“. Ein Anstieg setzt das Fenster zurück (Echo gewechselt), so gibt ein
+  Wandende im Schallkegel am Anfang keinen Fehlalarm. Der Messwert wird in `_settle` wiederverwendet, wenn danach nicht gedreht wird (keine
+  zusätzliche Messung im Normalfall). Nur `forward`; `backward` bekam nur den Encoder-Filter.
+- **Seitenwerte gegen das Kachelraster prüfen** (entschieden 2026-11-17): Ein Seitenwert, der mehr als `STEER_PLAUSIBLE_CM` (6) von jedem Rasterabstand
+  (Wand 5,25 + n · 30 cm) abweicht, ist keine Rasterwand (Wandende, freistehende Wand, oder er steht in einem offenen Raum weit neben der Mitte).
+  Die Abweichung zum Lenken ist dann auf `STEER_GRID_MAX_CM` (2 cm) begrenzt, also nur schwache Lenkung (vorher bis 14 cm Abweichung und 71 dps in die
+  Wand, Lauf 14:12). `Steering.unexpected` zählt solche Messungen, `unerwartet_links/rechts` stehen in den Lenkwerten. **Verwerfen** statt Begrenzen wurde
+  getestet und ist **schlechter**: die Simulation hat lange gleichmäßige Wände in 49 cm Abstand (Roboter 14 cm neben der Mitte in einem offenen Raum), mit
+  Verwerfen stiegen die Kartenwidersprüche (erzeugte Labyrinthe 1,9 auf 7,3 je Lauf). Im Modus „both“ (zwei nahe Wände) gilt die Begrenzung nicht.
+- **Rückzug in Stufen** (entschieden 2026-11-17, Vorgabe Projektinhaber: leichtes Wegdrehen und neu anfahren, nach dem 2. Fehlschlag nochmal probieren):
+  Schleift er an einer Seitenwand, rutscht er vorne oder fehlt der Fortschritt am Fahrtende, gibt es bis zu `CONTACT_MAX_TRIES` (2) Rückzüge, also bis zu
+  drei Versuche je Fahrt, danach wie bisher „Ketten blockiert“ (zurück, `BLOCKED`; der Explorer trägt eine Wand erst beim 2. `BLOCKED` auf einer bekannt
+  offenen Kante ein). **1. Rückzug:** `CONTACT_BACK_CM` (5) zurück und `CONTACT_ANGLE_DEG` (8°) wegdrehen. **2. Rückzug:** ganz zurück zur sicheren Stelle
+  (Fahrtbeginn: der Weg ist frei befahren), dort Abstand vorne neu messen (Trace `neu_gemessen`), die Fahrt beginnt von vorn (`base` = 0, die Encodersumme stimmt
+  nach rutschenden Ketten nicht mehr), anders wegdrehen. Wie weit zurück, bestimmt `_way_back`: der echte Weg aus der Abnahme des Abstands vorne, wenn eine
+  Wand in Reichweite ist und der Wert zur Encoderstrecke passt (sonst Encoderstrecke, höchstens eine Kachel); rutschende Ketten zählen mehr Strecke, als er
+  fährt, hinten ist kein Sensor. Dieselbe Berechnung gilt für das endgültige „Blockiert“ (vorher fuhr er die ganze Encoderstrecke zurück, auch hinter den
+  Start). **Wegdrehen:** schleift eine Seite, dreht jeder Versuch von dieser Wand weg; ist die Seite unbekannt (Rutschen, kein Fortschritt), zuerst nach
+  links (`RETRY_FIRST_TURN` = −1, die rechte Kette driftet nach rechts, solange `MOTOR_TRIM_RIGHT` nicht eingemessen ist; rechts vorne hing er), im 2. Rückzug
+  nach rechts. Die Winkel gelten gegen die Richtung beim Fahrtbeginn (`retry_angle`, im 2. Rückzug aus der Linksstellung 16°). **Am Fahrtende** dreht er die
+  Rückzugsdrehung zurück, wenn kein Wandbezug den Schrägstand schätzen kann (sonst gilt die Schätzung); Trace `schräglage` hat `rueckzug_winkel`. Trace
+  `rueckzug` (versuch, grund, zurück, drehung, winkel, voll). Das Rutschen vorne drehte vorher nicht weg, es setzte 5 cm gerade zurück und fuhr dieselbe Linie
+  nochmal (im Lauf 14:12 dreimal in drei Sekunden). Nur `forward`.
+- **Simulation dieser Änderungen** (2026-11-17, Drift, Rauschen, Schlupf, Kettenfaktor; gespeicherte Labyrinthe 12 Seeds, „gross“ 60 Seeds, dazu 24 erzeugte 8×7-Labyrinthe
+  mit freistehenden Wänden, Seed 100-123): einfach, sonderboeden, offener_raum unverändert 12/12 (Zeit +0,2 bis +1,2 s); „gross“ fertig 30/60 → 32/60, erkundet 88,1 →
+  89,9 %, Kartenwidersprüche 12,2 → 12,7 (gleich viele Läufe besser wie schlechter: die Labyrinthe sind chaotisch); erzeugte Labyrinthe erkundet 76,9 → 83,3 % (sie werden in
+  8 Minuten nie fertig), Widersprüche 5,5 → 1,9, „Rutscht“ 35 → 24. Der Gewinn kommt aus den Rückzugsstufen (alle Varianten mit ihnen um 83 %), die
+  Seitenwert-Begrenzung hält die Widersprüche niedrig. Der Encoder-Filter spielt in der Simulation keine Rolle (kein Lesefehler nachgebildet). **Nicht auf dem echten
+  Roboter geprüft.**
 - **Reiter „Einstellungen“ (Lenkung)** (entschieden 2026-11-10, Vorgabe Projektinhaber): fünfter Reiter, stellt die Stärke der
   Lenkung beim Geradeausfahren ein: `STEER_KP` (Lenkstärke), `STEER_KD` (Dämpfung), `STEER_MAX_DPS` (größte Lenkung),
   `STEER_SLEW_DPS_PER_CM` (Lenkänderung); Liste, Bereiche und Hilfetexte in `config.STEER_SETTINGS`. Regler + Zahlenfeld,

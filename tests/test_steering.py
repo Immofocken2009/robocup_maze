@@ -108,17 +108,47 @@ class SteeringTest(unittest.TestCase):
         self.assertNotEqual(s.slope, 0.0)
 
     def test_grid_offset_limited(self):
-        """Ferne Wand mit 7 cm Rasterabweichung: auf STEER_GRID_MAX_CM begrenzt, nahe Wand nicht."""
+        """Ferne Wand mit 5 cm Rasterabweichung: auf STEER_GRID_MAX_CM begrenzt, nahe Wand nicht."""
         s = Steering()
-        drive(s, [FAR + 7] * 4, [None] * 4)
+        drive(s, [FAR + 5] * 4, [None] * 4)
         self.assertEqual(s.mode, "left")
         self.assertEqual(s.offset, config.STEER_GRID_MAX_CM)
         s = Steering()
-        drive(s, [None] * 4, [FAR + 7] * 4)
+        drive(s, [None] * 4, [FAR + 5] * 4)
         self.assertEqual(s.offset, -config.STEER_GRID_MAX_CM)
         s = Steering()
-        drive(s, [C + 7] * 4, [None] * 4)      # nahe Wand: unbegrenzt
-        self.assertEqual(s.offset, 7)
+        drive(s, [C + 5] * 4, [None] * 4)      # nahe Wand: unbegrenzt
+        self.assertEqual(s.offset, 5)
+
+    def test_off_grid_wall_steers_only_weakly(self):
+        """Wand, die mehr als STEER_PLAUSIBLE_CM neben jedem Rasterabstand liegt (Wandende, freistehende Wand): Abweichung nur bis
+        STEER_GRID_MAX_CM, also schwache Lenkung (Lauf 2026-11-17: Wand in 19 cm hielt er für die eigene, 71 dps in die Wand)."""
+        weak = config.STEER_KP * config.STEER_GRID_MAX_CM
+        for cm in (C + 7, C + 13.9, C + 18, FAR + 7, FAR - 8):
+            s = Steering()
+            drive(s, [cm] * 8, [None] * 8)
+            self.assertEqual(s.mode, "left", cm)
+            self.assertEqual(abs(s.offset), config.STEER_GRID_MAX_CM, cm)
+            self.assertLessEqual(abs(s.corr), weak + 1e-6, cm)
+            self.assertEqual(s.unexpected["left"], 8, cm)
+        s = Steering()
+        drive(s, [None] * 8, [C + 14] * 8)
+        self.assertEqual(s.offset, -config.STEER_GRID_MAX_CM)
+        self.assertEqual(s.unexpected["right"], 8)
+
+    def test_plausible_wall_still_steers_fully(self):
+        s = Steering()
+        drive(s, [C + 5.5] * 4, [None] * 4)                  # innerhalb der Grenze: wie bisher, unbegrenzt
+        self.assertEqual(s.mode, "left")
+        self.assertEqual(s.offset, 5.5)
+        self.assertEqual(s.unexpected["left"], 0)
+
+    def test_values_report_unexpected(self):
+        s = Steering()
+        drive(s, [C + 14] * 2, [C] * 2)
+        v = s.values()
+        self.assertEqual(v["unerwartet_links"], 2)
+        self.assertEqual(v["unerwartet_rechts"], 0)
 
     def test_contact_trusted_at_once_without_slew_limit(self):
         """Seitenwert 1,9 cm (Kante an der Wand) bei bis dahin ferner Wand: gilt sofort, Lenkung weg von der Wand,
@@ -281,7 +311,12 @@ class FrontSlipTest(unittest.TestCase):
         self.assertEqual(len(hits), 1)
         self.assertLess(hits[0]["gemessen"], config.FRONT_STUCK_RATIO * hits[0]["erwartet"])
         self.assertFalse(any(what == "schleift" for what, _ in seen))
-        self.assertFalse(any(v["winkel"] for what, v in seen if what == "drehen"))      # kein Wegdrehen
+        # Seite unbekannt: der 1. Rückzug dreht nach links weg (RETRY_FIRST_TURN), nicht stumm dieselbe Linie nochmal
+        turns = [v["winkel"] for what, v in seen if what == "drehen" and v["winkel"]]
+        self.assertEqual(turns[0], -config.CONTACT_ANGLE_DEG)
+        retreat = [v for what, v in seen if what == "rueckzug"]
+        self.assertEqual(len(retreat), 1)
+        self.assertFalse(retreat[0]["voll"])
         self.assertIs(result.status, MoveStatus.OK)
 
     def test_normal_drive_with_slip_factor_does_not_trigger(self):

@@ -7,6 +7,7 @@ der Startkachel. Die Zeit läuft im Nachbau SPEEDUP-mal so schnell, damit die Te
 import json
 import math
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -18,7 +19,7 @@ from hardware.robot import (HeadingEstimate, LackOfProgress, RealRobot, RunStopp
 from navigation.maze_map import TileType
 from navigation.robot_interface import MoveStatus
 from tools.test_motors import angle_from_offset, new_trim
-from tests.fakes import TILE, FACE, Body, FakeMotors, FakeUltrasonic, FakeColor, make_robot, BlindUltrasonic
+from tests.fakes import SPEEDUP, TILE, FACE, Body, FakeMotors, FakeUltrasonic, FakeColor, make_robot, BlindUltrasonic
 
 
 class SensorsBlindTest(unittest.TestCase):
@@ -565,3 +566,220 @@ class FrontFreeTest(unittest.TestCase):
         self.assertAlmostEqual(robot.front_free_cm, 19.0)
         robot.drive_cm(30)                      # nie unter 0
         self.assertEqual(robot.front_free_cm, 0.0)
+
+
+class GlitchMotors(FakeMotors):
+    """Lesefehler des BrickPi3: die rechte Kette meldet ab der `at_call`-ten Lesung `count` Mal 65323 (wie im Lauf 2026-11-17). Zwei
+    Lesungen hintereinander, damit sicher eine davon den Anfang einer Schleife trifft (der Filter verwirft bis zu zwei)."""
+
+    def __init__(self, body, at_call, count=2):
+        super().__init__(body)
+        self.at_call, self.count, self.calls = at_call, count, 0
+
+    def positions(self):
+        pos = super().positions()
+        self.calls += 1
+        return (pos[0], 65323.0) if self.at_call <= self.calls < self.at_call + self.count else pos
+
+
+class SlipMotors(FakeMotors):
+    """Ketten rutschen an einem Hindernis: die Encoder zählen, der Roboter kommt aber nur bis `cap` cm. `release_on_back`: nach dem
+    ersten Zurücksetzen ist er frei."""
+
+    def __init__(self, body, cap, release_on_back=False):
+        super().__init__(body)
+        self.cap, self.release_on_back = cap, release_on_back
+
+    def set_dps(self, left, right):
+        if self.release_on_back and left < 0 and right < 0:
+            self.cap = float("inf")
+        super().set_dps(left, right)
+
+    def _advance(self):
+        now = time.monotonic()
+        dt = (now - self.t) * SPEEDUP
+        self.t = now
+        step = [d * dt for d in self.dps]
+        fwd = (step[0] + step[1]) / 2 / config.MOTOR_DEG_PER_CM
+        if fwd > 0:
+            fwd = max(0.0, min(fwd, self.cap - self.body.x, self.body.max_x() - self.body.x))
+        self.pos = [p + s for p, s in zip(self.pos, step)]
+        self.body.x += fwd
+
+
+class NoReadyUltrasonic(FakeUltrasonic):
+    """In der Fahrschleife wird nichts gemessen (nur Messungen im Stand), damit die Prüfung am Fahrtende allein zählt."""
+
+    def ready(self):
+        return False
+
+
+class OpenSidesUltrasonic(FakeUltrasonic):
+    """Seitlich kein Echo (freie Fläche, kein Wandbezug), vorne wie gewohnt."""
+
+    def measure(self, side):
+        if side == "front":
+            return super().measure(side)
+        self.last[side] = None
+        return None
+
+
+class EncoderFilterTest(unittest.TestCase):
+    def drive_with_glitch(self, ultrasonic=FakeUltrasonic, at_call=30):
+        body = Body(wall_cm=FACE + TILE)
+        robot = RealRobot(GlitchMotors(body, at_call=at_call), ultrasonic(body), FakeColor(body))
+        seen = []
+        robot.trace = lambda what, **v: seen.append((what, v))
+        return body, robot.forward(set()), seen
+
+    def test_bad_values_are_ignored_without_any_retreat(self):
+        """Falsche Lesungen (65323 statt ca. 10966) beenden die Fahrt nicht und lösen keinen Rückzug aus."""
+        body, result, seen = self.drive_with_glitch()
+        self.assertIs(result.status, MoveStatus.OK)
+        self.assertAlmostEqual(body.x, TILE, delta=1.5)
+        bad = [v for what, v in seen if what == "encoder_ausreisser"]
+        self.assertEqual(len(bad), 2)
+        self.assertEqual(bad[0]["roh"][1], 65323.0)
+        self.assertFalse(any(what in ("rutscht", "rueckzug", "kein_fortschritt") for what, _ in seen))
+
+    def test_without_the_filter_the_slip_detection_has_to_catch_it(self):
+        """Ohne Filter hält nur noch die Rutsch-Erkennung dagegen, mit einem unnötigen Rückzug samt Drehung."""
+        with mock.patch.object(config, "ENC_JUMP_DEG", 1e12):
+            body, result, seen = self.drive_with_glitch()
+        self.assertTrue(any(what == "rueckzug" for what, _ in seen))
+
+    def test_progress_check_catches_it_without_filter_and_without_measuring_while_driving(self):
+        """Letzte Verteidigung: nur am Fahrtende gemessen, der Abstand vorne ist kaum gesunken, also kein angekommen."""
+        with mock.patch.object(config, "ENC_JUMP_DEG", 1e12):
+            body, result, seen = self.drive_with_glitch(ultrasonic=NoReadyUltrasonic, at_call=8)
+        self.assertTrue(any(what == "kein_fortschritt" for what, _ in seen))
+        self.assertIs(result.status, MoveStatus.OK)
+        self.assertAlmostEqual(body.x, TILE, delta=3.0)
+
+    def test_hand_move_is_taken_over_after_three_matching_values_without_a_jump(self):
+        robot = make_robot(Body(wall_cm=None))
+        robot.motors.pos = [100.0, 100.0]
+        self.assertEqual(robot._positions(), (100.0, 100.0))
+        robot.motors.pos = [5000.0, 5000.0]                       # von Hand gedreht
+        out = [robot._positions() for _ in range(config.ENC_RESYNC_AFTER)]
+        self.assertEqual(out[:-1], [(100.0, 100.0)] * (config.ENC_RESYNC_AFTER - 1))   # zuerst verworfen
+        self.assertEqual(out[-1], (100.0, 100.0))                  # dann übernommen, aber die Strecke springt nicht
+        robot.motors.pos = [5010.0, 5010.0]
+        self.assertEqual(robot._positions(), (110.0, 110.0))
+
+    def test_unrelated_bad_values_never_resync(self):
+        robot = make_robot(Body(wall_cm=None))
+        robot._positions()
+        for bad in (5000.0, 9000.0, 20000.0, 40000.0):            # jede Lesung anders: nie 3 zusammenpassende
+            robot.motors.pos = [bad, bad]
+            self.assertEqual(robot._positions(), (0.0, 0.0))
+
+    def test_poll_sensors_does_not_touch_the_filter(self):
+        """Die Anzeige im Stand wird nicht aufgezeichnet und darf den Zustand des Filters nicht ändern."""
+        robot = make_robot(Body(wall_cm=None))
+        robot._positions()
+        robot.motors.pos = [9999.0, 9999.0]
+        robot.poll_sensors()
+        self.assertEqual(robot._enc_last, (0.0, 0.0))
+        self.assertEqual(robot._enc_bad, [])
+
+    def test_reset_and_relocated_clear_the_filter(self):
+        robot = make_robot(Body(wall_cm=None))
+        robot._positions()
+        robot.motors.pos = [5000.0, 5000.0]
+        robot._positions()
+        for call in (robot.reset, robot.relocated):
+            robot._enc_last, robot._enc_bad, robot._enc_offset = (1.0, 1.0), [(2.0, 2.0)], (3.0, 3.0)
+            call()
+            self.assertEqual((robot._enc_last, robot._enc_bad, robot._enc_offset), (None, [], (0.0, 0.0)))
+
+
+class RetreatLadderTest(unittest.TestCase):
+    """Fortschrittsprüfung am Fahrtende und Rückzug in Stufen."""
+
+    def make(self, cap, release_on_back=False, wall_cm=FACE + 2 * TILE, ultrasonic=NoReadyUltrasonic):
+        body = Body(wall_cm=wall_cm)
+        robot = RealRobot(SlipMotors(body, cap, release_on_back), ultrasonic(body), FakeColor(body))
+        seen, rotations, backs = [], [], []
+        robot.trace = lambda what, **v: seen.append((what, v))
+        rotate, drive = robot._rotate, robot.drive_cm
+        robot._rotate = lambda deg: (rotations.append(deg), rotate(deg))[1]
+        robot.drive_cm = lambda cm: (backs.append(cm), drive(cm))[1]
+        return body, robot, seen, rotations, backs
+
+    def test_arrival_without_progress_is_detected(self):
+        """Encoder melden 30 cm, der Abstand vorne ist nur 2 cm gesunken: nicht "angekommen"."""
+        body, robot, seen, rotations, backs = self.make(cap=2.0)
+        result = robot.forward(set())
+        self.assertTrue(any(what == "kein_fortschritt" for what, _ in seen))
+        self.assertIs(result.status, MoveStatus.BLOCKED)        # nach den Rückzügen wie "Ketten blockiert"
+        self.assertEqual([v["versuch"] for what, v in seen if what == "rueckzug"], [1, 2])
+
+    def test_normal_arrival_is_not_flagged(self):
+        body, robot, seen, _, _ = self.make(cap=float("inf"))
+        result = robot.forward(set())
+        self.assertIs(result.status, MoveStatus.OK)
+        self.assertFalse(any(what in ("kein_fortschritt", "rueckzug") for what, _ in seen))
+
+    def test_retreat_turns_alternate_when_side_unknown(self):
+        """1. Rückzug: 5 cm zurück, 8° nach links. 2. Rückzug: ganz zurück zur sicheren Stelle, 8° nach rechts, also 16° aus der
+        Linksstellung (Winkel gegen die Richtung beim Fahrtbeginn, nicht gegen die jetzige)."""
+        body, robot, seen, rotations, backs = self.make(cap=2.0)
+        robot.forward(set())
+        self.assertEqual(rotations[:2], [-config.CONTACT_ANGLE_DEG, 2 * config.CONTACT_ANGLE_DEG])
+        retreats = [v for what, v in seen if what == "rueckzug"]
+        self.assertFalse(retreats[0]["voll"])
+        self.assertAlmostEqual(retreats[0]["zurück"], config.CONTACT_BACK_CM)
+        self.assertTrue(retreats[1]["voll"])
+        self.assertEqual([v["winkel"] for v in retreats], [-config.CONTACT_ANGLE_DEG, config.CONTACT_ANGLE_DEG])
+
+    def test_full_retreat_goes_back_only_as_far_as_he_really_came(self):
+        """Rutschende Ketten zählen 30 cm, wirklich gefahren sind 2: der 2. Rückzug setzt nicht 30 cm zurück (hinten kein Sensor)."""
+        body, robot, seen, rotations, backs = self.make(cap=2.0)
+        robot.forward(set())
+        full = [v for what, v in seen if what == "rueckzug" and v["voll"]][0]
+        self.assertLess(full["zurück"], 6.0)
+        self.assertLess(abs(body.x), 8.0)       # auch nach dem endgueltigen Blockiert steht er ungefaehr am Fahrtbeginn
+
+    def test_full_retreat_measures_again_and_starts_over(self):
+        body, robot, seen, rotations, backs = self.make(cap=2.0)
+        robot.forward(set())
+        again = [v for what, v in seen if what == "neu_gemessen"]
+        self.assertEqual(len(again), 1)
+        self.assertIsNotNone(again[0]["vorne"])
+
+    def test_turns_are_undone_at_the_end_without_a_wall_estimate(self):
+        """Hat der Rückzug geholfen (danach frei) und gibt es keinen Wandbezug, dreht er am Fahrtende die Rückzugsdrehung zurück."""
+        body, robot, seen, rotations, backs = self.make(cap=2.0, release_on_back=True, ultrasonic=OpenSidesUltrasonic)
+        result = robot.forward(set())
+        self.assertIs(result.status, MoveStatus.OK)
+        self.assertEqual(rotations[0], -config.CONTACT_ANGLE_DEG)
+        self.assertAlmostEqual(rotations[-1], config.CONTACT_ANGLE_DEG)             # zurück in die Ausgangsrichtung
+        self.assertAlmostEqual(sum(rotations), 0.0)                                 # Richtung wie am Fahrtbeginn
+        self.assertAlmostEqual(body.x, TILE, delta=3.0)
+
+    def test_known_side_always_turns_away_from_that_wall(self):
+        class Touching(NoReadyUltrasonic):
+            def ready(self):
+                return True
+
+            def measure(self, side):
+                cm = super().measure(side)
+                if side == "left":
+                    cm = 2.0                                    # linke Kante schleift an der Wand
+                    self.last[side] = cm
+                return cm
+
+        body, robot, seen, rotations, backs = self.make(cap=float("inf"), ultrasonic=Touching)
+        robot.forward(set())
+        turns = [v["winkel"] for what, v in seen if what == "rueckzug"]
+        self.assertTrue(turns)
+        self.assertEqual(set(turns), {config.CONTACT_ANGLE_DEG})    # immer nach rechts, von der linken Wand weg
+
+    def test_wall_comes_into_reach_after_the_start(self):
+        """Am Fahrtbeginn keine Wand in Reichweite (Abstand vorne unbekannt), sie taucht erst später auf, dann hängt er: der Rückzug darf
+        nicht an dem fehlenden Startwert scheitern (TypeError in der Abstandsreihe, gefunden im Lauf der Testsuite)."""
+        body, robot, seen, rotations, backs = self.make(cap=28.0, wall_cm=FACE + 4 * TILE, ultrasonic=FakeUltrasonic)
+        result = robot.forward(set())
+        self.assertTrue(any(what == "rueckzug" for what, _ in seen))
+        self.assertIn(result.status, (MoveStatus.OK, MoveStatus.BLOCKED))

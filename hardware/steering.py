@@ -57,6 +57,7 @@ class Steering:
         self.hist: dict[str, deque[tuple[float, bool]]] = {"left": deque(), "right": deque()}   # (gefahrene cm, im Kontakt)
         self.contact: str | None = None     # Seite, die bei der letzten Messung an der Wand schleifte
         self._jump = False                  # nächste Lenkung ohne Begrenzung (Kontakt)
+        self.unexpected = {"left": 0, "right": 0}   # Messungen, die zu keiner Rasterwand passten (Wandende, freistehende Wand)
 
     def side(self, side: str, cm: float | None, travelled: float, enc: tuple[float, float]) -> float:
         """Neue Messung einer Seite. travelled: gefahrene cm, enc: Encodergrad seit dem Start."""
@@ -64,6 +65,9 @@ class Steering:
         prev = self.last[side]
         self.last[side] = cm
         contact = cm is not None and cm <= config.STEER_CONTACT_CM
+        odd = cm is not None and config.STEER_CONTACT_CM < cm <= config.STEER_SIDE_MAX_CM and self._implausible(cm)
+        if odd:
+            self.unexpected[side] += 1
         self.contact = side if contact else None
         if contact:                                     # Kante schleift an der Wand: sofort ernst nehmen
             self.trusted[side] = True
@@ -95,6 +99,12 @@ class Steering:
                 and not self._near("left") and not self._near("right"):     # schleifende Seite verfälscht B nicht
             self.corridor = self.width
         return self._control(travelled, enc, new_sample=True)
+
+    def _implausible(self, cm: float) -> bool:
+        """Weicht der Wert mehr als STEER_PLAUSIBLE_CM von jedem Kachelraster-Abstand (Wand der eigenen Kachel oder ganze Kacheln weiter)
+        ab? So weit neben der Mitte steht er nach einer Zentrierung nicht: das ist keine Rasterwand."""
+        half = self.corridor / 2
+        return abs(cm - _grid(cm, half)) > config.STEER_PLAUSIBLE_CM
 
     def _near(self, side: str) -> bool:
         cm = self.last[side]
@@ -185,6 +195,7 @@ class Steering:
                 "wartet_links": self.pending["left"], "wartet_rechts": self.pending["right"],
                 "breite": self.width, "gang": self.corridor, "modus": self.mode,
                 "kontakt": self.contact,
+                "unerwartet_links": self.unexpected["left"], "unerwartet_rechts": self.unexpected["right"],
                 "abweichung": self.offset, "schräg": self.slope,
                 "p": config.STEER_KP * self.offset if pd else None,
                 "d": config.STEER_KD * self.slope if pd else None,
@@ -237,10 +248,12 @@ class HeadingEstimate:
 
 
 def _grid_offset(cm: float, half: float) -> float:
-    """Abstand zur Wand minus Sollabstand. Bei einer fernen Wand (Rasterabstand, weiter als eine halbe
-    Kachel hinter der eigenen) auf ±STEER_GRID_MAX_CM begrenzt: der Schallkegel/Wandrand täuscht dort leicht."""
+    """Abstand zur Wand minus Sollabstand. Auf ±STEER_GRID_MAX_CM begrenzt bei einer fernen Wand (Rasterabstand, weiter als eine halbe
+    Kachel hinter der eigenen: der Schallkegel/Wandrand täuscht dort leicht) und bei einem Wert, der mehr als STEER_PLAUSIBLE_CM vom
+    Raster abweicht (Wandende, freistehende Wand, oder er steht in einem offenen Raum weit neben der Kachelmitte: schwach lenken statt
+    voll hinein oder gar nicht, Simulation: Verwerfen brachte mehr Kartenwidersprüche)."""
     off = cm - _grid(cm, half)
-    if cm > half + config.TILE_SIZE_CM / 2:
+    if cm > half + config.TILE_SIZE_CM / 2 or abs(off) > config.STEER_PLAUSIBLE_CM:
         off = _clamp(off, config.STEER_GRID_MAX_CM)
     return off
 

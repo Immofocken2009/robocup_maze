@@ -161,7 +161,21 @@ ARRIVE_FIX_MAX_CM = 10.0        # ... und höchstens so groß (größer: wahrsch
                                 # 7,25 cm vor der Drehmitte, bei bis zu 8 cm Überschuss messen sie sonst schon die Nachbarkachel
 CONTACT_BACK_CM = 5.0           # so weit zurücksetzen, wenn er schleift
 CONTACT_ANGLE_DEG = 8.0         # danach so weit von der Wand weg drehen (wie DEAD_END_ANGLE_DEG)
-CONTACT_MAX_TRIES = 2           # so oft je Fahrt zurücksetzen; danach wie "Ketten blockiert" (zurück, als Wand melden)
+CONTACT_MAX_TRIES = 2           # so oft je Fahrt zurücksetzen (zwei Rückzüge = bis zu drei Versuche); danach wie "Ketten blockiert" (zurück,
+                                # als Wand melden). 1. Rückzug: CONTACT_BACK_CM zurück und CONTACT_ANGLE_DEG wegdrehen; 2. Rückzug: ganz zurück
+                                # zur sicheren Stelle (Fahrtbeginn), neu messen, anders wegdrehen (Läufe 2026-11-17: dreimal gleich zurück und
+                                # dieselbe Linie nochmal)
+RETRY_FIRST_TURN = -1           # Seite unbekannt (Rutschen vorne, kein Fortschritt): der 1. Versuch dreht nach links (-1) weg, der 2. nach rechts.
+                                # Grund: die rechte Kette driftet nach rechts (MOTOR_TRIM_RIGHT noch nicht eingemessen), rechts vorne hing er
+PROGRESS_MIN_CM = 15.0          # Fortschrittsprüfung am Fahrtende (Abstand vorne muss sinken): erst ab so viel Encoderstrecke
+STEER_PLAUSIBLE_CM = 6.0        # Seitenwert weicht mehr als so viel vom Kachelraster ab (Wand 5,25 + n * 30 cm): keine Rasterwand, sondern Wandende,
+                                # freistehende Wand oder er steht weit neben der Mitte: Abweichung höchstens STEER_GRID_MAX_CM, also nur schwach
+                                # lenken (Lauf 2026-11-17: Wand in 19 cm hielt er für die eigene und lenkte mit 71 dps hinein). Nach Drehungen
+                                # streut der Seitenwert 3-4 cm (sonst ca. 2 cm). Simulation: Verwerfen statt Begrenzen gab mehr Kartenwidersprüche
+ENC_JUMP_DEG = 400.0            # Encoder: Sprung zwischen zwei Lesungen größer als das = Lesefehler des BrickPi3 (3 von 15 Läufen: 65323 statt
+                                # 10966, rechts, eine Lesung): verwerfen, der letzte gute Wert bleibt (er fuhr sonst "angekommen" nach 1486 cm)
+ENC_RESYNC_AFTER = 3            # so viele zusammenpassende verworfene Lesungen hintereinander: dann gilt der neue Wert (von Hand bewegt), mit
+ENC_RESYNC_TOL_DEG = 20.0       # ... "zusammenpassend" = untereinander höchstens so weit auseinander
 STEER_SIDE_MAX_CM = 55.0        # Seitenwand weiter weg: zum Lenken zu ungenau
 CORRIDOR_CM = 2 * SIDE_CENTER_CM                    # Startwert Gangbreite B = links + rechts (wird gemessen)
 CORRIDOR_MAX_CM = CORRIDOR_CM + TILE_SIZE_CM / 2    # links + rechts größer = breiter Raum, nähere Wand zählt
