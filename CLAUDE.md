@@ -23,6 +23,12 @@
    **Ergänzung 2026-11-16 (Projektinhaber):** Kleine, klar abgegrenzte Änderungen dürfen von **mehreren Haiku-Agenten parallel**
    ausgeführt werden (`model: "haiku"`), je Agent eine Datei bzw. ein Modul, siehe „Parallel arbeiten mit mehreren Agenten“.
 
+7. **Tests, Simulationen und Auswertungen mit 5 Haiku-Agenten gleichzeitig** (Vorgabe Projektinhaber 2026-11-17, damit es schneller geht): Wo es möglich ist, laufen
+   Testsuite, Simulationsmatrizen (Seeds, Labyrinthe, Varianten) und Aufzeichnungsauswertungen nicht nacheinander von der Hauptsitzung, sondern aufgeteilt auf bis zu **5
+   Haiku-Agenten (`model: "haiku"`) parallel**, je Agent ein klar abgegrenzter Teil (z.B. ein Labyrinth oder eine Seed-Gruppe, ein Test-Modul). Sie führen nur aus und melden die
+   Zahlen, sie ändern keinen Code (Regel 6: Agenten committen nie, ändern nur ihre Dateiliste, hier keine). Die Hauptsitzung wertet aus. Hinweis: der Pi hat 4 Kerne; laufen
+   mehrere rechenintensive Läufe gleichzeitig, werden sie langsamer (die Sim-Zeit und die Ergebnisse bleiben gleich). Aufteilen lohnt sich, wenn ein Teil länger als ca. 1 Minute dauert.
+
 6. **Parallel arbeiten mit mehreren Agenten** (Vorgabe Projektinhaber 2026-11-16, Code dafür am 2026-11-16 aufgeteilt):
    - **Eine Datei gehört zu einem Zeitpunkt genau einem Agenten.** Die Hauptsitzung (Chef) verteilt die Aufgaben so, dass sich die
      Dateilisten nicht überschneiden, und schreibt in jeden Auftrag die erlaubten Dateien hinein („touch ONLY …“). Was ein Agent
@@ -33,7 +39,7 @@
      Python-Modul in `web/`; Tests je Modul eine Datei, gemeinsame Nachbauten in `tests/fakes.py`. Wer eine Funktion in ein anderes
      Modul verschiebt, lässt den Namen am alten Ort importierbar (Re-Export mit `# noqa: F401`), damit andere Agenten nichts anpassen müssen.
    - **Jeder Agent prüft selbst:** `python3 -m pyflakes <seine Dateien>` und die Tests seines Moduls (`python3 -m unittest tests.test_xyz`);
-     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 262 Tests, ca. 105 s) und bei
+     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 263 Tests, ca. 105 s) und bei
      Änderungen an `web/` den Browser-Test (siehe Befehle). Die Tests laufen auch ohne Pi: `brickpi3`, `lgpio`, `smbus2` werden
      optional importiert (fehlen sie, schlägt erst das Anlegen der Hardware-Objekte fehl, auf dem Pi ändert sich nichts).
    - **Nachrechnen bleibt 1:1:** Reihenfolge und Inhalt der Hardware-Aufrufe (`clock`, `motors`, `us`, `color`) und der `trace`-Aufrufe
@@ -524,9 +530,11 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   für den Fahrcode (`forward`, `backward`, `_travelled`, `_rotate`, `drive_cm`) und verwirft einen Sprung über `ENC_JUMP_DEG` (400°) zwischen zwei
   Lesungen: der letzte gute Wert bleibt (Trace `encoder_ausreisser`). Passen `ENC_RESYNC_AFTER` (3) verworfene Lesungen hintereinander zusammen
   (untereinander höchstens `ENC_RESYNC_TOL_DEG` auseinander, z.B. Ketten von Hand bewegt), gilt der neue Wert mit angepasstem Versatz, die gezählte Strecke
-  springt nicht. Ohne zusätzliche Uhr-Aufrufe (Nachrechnen normaler Läufe bleibt gleich). `poll_sensors` (Anzeige im Stand, nicht aufgezeichnet) liest
+  springt nicht. Der Filter selbst macht keine zusätzlichen Uhr-Aufrufe. `poll_sensors` (Anzeige im Stand, nicht aufgezeichnet) liest
   weiter roh und ändert den Zustand des Filters nicht; `reset()` und `relocated()` setzen ihn zurück. Aufzeichnungen mit so einem Lesefehler
-  (15:04 am 2026-11-10, 15:44 und 14:12) rechnen sich nicht mehr 1:1 nach, weil der Filter ihn jetzt verwirft. Drei Verteidigungslinien in dieser
+  (15:04 am 2026-11-10, 15:44 und 14:12) rechnen sich nicht mehr 1:1 nach, weil der Filter ihn jetzt verwirft. **Alle Aufzeichnungen vor dem 2026-11-17 rechnen sich
+  mit dem jetzigen Code nicht mehr nach** (die Fortschrittsprüfung am Fahrtende hält an und misst vor dem Verlassen der Schleife; die Abweichung beginnt in der ersten Fahrt
+  mit Wand in Reichweite, geprüft an 14:12): ältere Aufzeichnungen nur mit dem im Kopf genannten Git-Stand nachrechnen. Drei Verteidigungslinien in dieser
   Reihenfolge: Filter, Rutsch-Erkennung in der Fahrschleife, Fortschrittsprüfung am Fahrtende.
 - **Fortschrittsprüfung am Fahrtende** (entschieden 2026-11-17): Beim Erreichen des Haltepunkts (Wand vorne in Reichweite, mindestens
   `PROGRESS_MIN_CM` (15) Encoderstrecke) hält er an, misst den Abstand vorne und prüft ihn mit `_front_slips` gegen die Reihe der Messungen der Fahrt (der
@@ -543,7 +551,7 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
 - **Rückzug in Stufen** (entschieden 2026-11-17, Vorgabe Projektinhaber: leichtes Wegdrehen und neu anfahren, nach dem 2. Fehlschlag nochmal probieren):
   Schleift er an einer Seitenwand, rutscht er vorne oder fehlt der Fortschritt am Fahrtende, gibt es bis zu `CONTACT_MAX_TRIES` (2) Rückzüge, also bis zu
   drei Versuche je Fahrt, danach wie bisher „Ketten blockiert“ (zurück, `BLOCKED`; der Explorer trägt eine Wand erst beim 2. `BLOCKED` auf einer bekannt
-  offenen Kante ein). **1. Rückzug:** `CONTACT_BACK_CM` (5) zurück und `CONTACT_ANGLE_DEG` (8°) wegdrehen. **2. Rückzug:** ganz zurück zur sicheren Stelle
+  offenen Kante ein). **1. Rückzug:** `CONTACT_BACK_CM` (5) zurück und `CONTACT_ANGLE_DEG` (8°) wegdrehen. **2. Rückzug:** erst geradedrehen (zurück in die Richtung vom Fahrtbeginn, sonst fährt er schräg blind zurück), dann ganz zurück zur sicheren Stelle
   (Fahrtbeginn: der Weg ist frei befahren), dort Abstand vorne neu messen (Trace `neu_gemessen`), die Fahrt beginnt von vorn (`base` = 0, die Encodersumme stimmt
   nach rutschenden Ketten nicht mehr), anders wegdrehen. Wie weit zurück, bestimmt `_way_back`: der echte Weg aus der Abnahme des Abstands vorne, wenn eine
   Wand in Reichweite ist und der Wert zur Encoderstrecke passt (sonst Encoderstrecke, höchstens eine Kachel); rutschende Ketten zählen mehr Strecke, als er
@@ -551,13 +559,15 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Start). **Wegdrehen:** schleift eine Seite, dreht jeder Versuch von dieser Wand weg; ist die Seite unbekannt (Rutschen, kein Fortschritt), zuerst nach
   links (`RETRY_FIRST_TURN` = −1, die rechte Kette driftet nach rechts, solange `MOTOR_TRIM_RIGHT` nicht eingemessen ist; rechts vorne hing er), im 2. Rückzug
   nach rechts. Die Winkel gelten gegen die Richtung beim Fahrtbeginn (`retry_angle`, im 2. Rückzug aus der Linksstellung 16°). **Am Fahrtende** dreht er die
-  Rückzugsdrehung zurück, wenn kein Wandbezug den Schrägstand schätzen kann (sonst gilt die Schätzung); Trace `schräglage` hat `rueckzug_winkel`. Trace
+  Rückzugsdrehung zurück, wenn kein Wandbezug den Schrägstand schätzen kann (sonst gilt die Schätzung); ebenso vor dem Zurückfahren bei „Ketten blockiert“ und bei
+  Schwarz/Rot erkannt (nach einem Rückzug dieser Fahrt), damit der Explorer nie von einer verdrehten Richtung ausgeht. Trace `schräglage` hat `rueckzug_winkel`. Trace
   `rueckzug` (versuch, grund, zurück, drehung, winkel, voll). Das Rutschen vorne drehte vorher nicht weg, es setzte 5 cm gerade zurück und fuhr dieselbe Linie
   nochmal (im Lauf 14:12 dreimal in drei Sekunden). Nur `forward`.
 - **Simulation dieser Änderungen** (2026-11-17, Drift, Rauschen, Schlupf, Kettenfaktor; gespeicherte Labyrinthe 12 Seeds, „gross“ 60 Seeds, dazu 24 erzeugte 8×7-Labyrinthe
   mit freistehenden Wänden, Seed 100-123): einfach, sonderboeden, offener_raum unverändert 12/12 (Zeit +0,2 bis +1,2 s); „gross“ fertig 30/60 → 32/60, erkundet 88,1 →
-  89,9 %, Kartenwidersprüche 12,2 → 12,7 (gleich viele Läufe besser wie schlechter: die Labyrinthe sind chaotisch); erzeugte Labyrinthe erkundet 76,9 → 83,3 % (sie werden in
-  8 Minuten nie fertig), Widersprüche 5,5 → 1,9, „Rutscht“ 35 → 24. Der Gewinn kommt aus den Rückzugsstufen (alle Varianten mit ihnen um 83 %), die
+  90,9 %, Abbrüche 22 → 18, Kartenwidersprüche 12,2 → 15,6 (streut stark: gleich viele Läufe besser wie schlechter, die Labyrinthe sind chaotisch; Zwischenstände 12,7 bis 16,8);
+  erzeugte Labyrinthe erkundet 76,9 → 83,6 % (sie werden in 8 Minuten nie fertig), Abbrüche 7 → 4, Widersprüche 5,5 → 1,5, „Rutscht“ 35 → 27. Gemessen nach der letzten Korrektur
+  (Zurückdrehen bei allen Ausgängen, Geradedrehen vor dem 2. Rückzug). Der Gewinn kommt aus den Rückzugsstufen (alle Varianten mit ihnen um 83 %), die
   Seitenwert-Begrenzung hält die Widersprüche niedrig. Der Encoder-Filter spielt in der Simulation keine Rolle (kein Lesefehler nachgebildet). **Nicht auf dem echten
   Roboter geprüft.**
 - **Reiter „Einstellungen“ (Lenkung)** (entschieden 2026-11-10, Vorgabe Projektinhaber): fünfter Reiter, stellt die Stärke der

@@ -714,6 +714,7 @@ class RetreatLadderTest(unittest.TestCase):
         self.assertTrue(any(what == "kein_fortschritt" for what, _ in seen))
         self.assertIs(result.status, MoveStatus.BLOCKED)        # nach den Rückzügen wie "Ketten blockiert"
         self.assertEqual([v["versuch"] for what, v in seen if what == "rueckzug"], [1, 2])
+        self.assertAlmostEqual(sum(rotations), 0.0)             # nach BLOCKED wieder in der Richtung vom Fahrtbeginn
 
     def test_normal_arrival_is_not_flagged(self):
         body, robot, seen, _, _ = self.make(cap=float("inf"))
@@ -726,12 +727,29 @@ class RetreatLadderTest(unittest.TestCase):
         Linksstellung (Winkel gegen die Richtung beim Fahrtbeginn, nicht gegen die jetzige)."""
         body, robot, seen, rotations, backs = self.make(cap=2.0)
         robot.forward(set())
-        self.assertEqual(rotations[:2], [-config.CONTACT_ANGLE_DEG, 2 * config.CONTACT_ANGLE_DEG])
+        a = config.CONTACT_ANGLE_DEG
+        # 1. Rückzug: 8° links. 2. Rückzug: erst geradedrehen (sonst fährt er schräg blind zurück), zurück, dann 8° rechts.
+        # Nach dem endgültigen Blockiert wieder gerade: die Richtung ist am Ende wie am Anfang.
+        self.assertEqual(rotations, [-a, a, a, -a])
+        self.assertAlmostEqual(sum(rotations), 0.0)
         retreats = [v for what, v in seen if what == "rueckzug"]
         self.assertFalse(retreats[0]["voll"])
         self.assertAlmostEqual(retreats[0]["zurück"], config.CONTACT_BACK_CM)
         self.assertTrue(retreats[1]["voll"])
         self.assertEqual([v["winkel"] for v in retreats], [-config.CONTACT_ANGLE_DEG, config.CONTACT_ANGLE_DEG])
+
+    def test_full_retreat_backs_up_straight(self):
+        """Der volle Rückzug fährt auf der Linie des Fahrtbeginns zurück, nicht mit der Drehung des 1. Rückzugs."""
+        body, robot, seen, rotations, backs = self.make(cap=2.0)
+        order = []
+        rotate, drive = robot._rotate, robot.drive_cm
+        robot._rotate = lambda deg: (order.append(("dreht", round(deg, 1))), rotate(deg))[1]
+        robot.drive_cm = lambda cm: (order.append(("fährt", round(cm, 1))), drive(cm))[1]
+        robot.forward(set())
+        first_full = next(i for i, (kind, v) in enumerate(order) if kind == "dreht" and v == config.CONTACT_ANGLE_DEG)
+        self.assertEqual(order[first_full][0], "dreht")             # geradedrehen kommt vor dem Zurückfahren
+        self.assertEqual(order[first_full + 1][0], "fährt")
+        self.assertLess(order[first_full + 1][1], 0)
 
     def test_full_retreat_goes_back_only_as_far_as_he_really_came(self):
         """Rutschende Ketten zählen 30 cm, wirklich gefahren sind 2: der 2. Rückzug setzt nicht 30 cm zurück (hinten kein Sensor)."""

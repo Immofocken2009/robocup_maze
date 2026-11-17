@@ -332,6 +332,9 @@ class RealRobot(RobotInterface):
                     self.motors.float()
                     self.floor = tile
                     self.set_action(f"{FLOOR_NAMES[tile]} erkannt", "fährt zurück")
+                    if abs(retry_angle) >= 0.5:
+                        self._rotate(-retry_angle)      # wieder in der Richtung vom Fahrtbeginn (nach einem Rückzug dieser Fahrt)
+                        retry_angle = 0.0
                     self.drive_cm(-(base + self._travelled(l0, r0)))
                     return MoveResult(MoveStatus.AVOIDED, tile)
 
@@ -372,8 +375,11 @@ class RealRobot(RobotInterface):
                     self.set_action(f"Schleift {name}", "setzt zurück")
                 else:
                     self.set_action("Rutscht vorne", "setzt zurück")
-                net = max(0.0, base + self._travelled(l0, r0))      # Encoderstrecke seit Fahrtbeginn
                 full = tries >= 2
+                if full and abs(retry_angle) >= 0.5:
+                    self._rotate(-retry_angle)          # erst geradedrehen: sonst fährt er schräg blind zurück (hinten kein Sensor)
+                    retry_angle = 0.0
+                net = max(0.0, base + self._travelled(l0, r0))      # Encoderstrecke seit Fahrtbeginn
                 back = config.CONTACT_BACK_CM
                 if full:                                # zurück zur sicheren Stelle (Fahrtbeginn), so weit er WIRKLICH gekommen ist
                     back = self._way_back(net, front, last_grid is not None)
@@ -427,6 +433,9 @@ class RealRobot(RobotInterface):
                 self.motors.float()
                 self.trace("blockiert", gefahren=travelled, encoder=self.encoders)
                 self.set_action("Ketten blockiert", "fährt zurück")
+                if abs(retry_angle) >= 0.5:
+                    self._rotate(-retry_angle)          # wieder in der Richtung vom Fahrtbeginn, der Explorer geht von gerade aus
+                    retry_angle = 0.0
                 back = self._way_back(travelled, front, last_grid is not None)
                 if back >= 0.5:
                     self.drive_cm(-back)
