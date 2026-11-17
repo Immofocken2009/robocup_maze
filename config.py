@@ -47,6 +47,10 @@ US_CYCLE_S = 0.08           # Pause zwischen zwei Messungen (Messzyklus RCWL-961
 SPEED_OF_SOUND_M_S = 343.0  # bei ca. 20 °C
 GPIO_CHIP = 0               # gpiochip0 = GPIO-Leiste des Pi 5 (pinctrl-rp1)
 WALL_THRESHOLD_CM = 20.0    # Karte: in der Kachelmitte gemessener Abstand kleiner als das = Wand
+US_SIDES_TOGETHER = False   # links und rechts beim Fahren gleichzeitig auslösen (`Ultrasonic.measure_pair`, ein Zyklus statt zwei).
+                            # Aus, solange Übersprechen nicht geprüft ist: `python3 -m tools.test_ultrasonic paar`
+US_FRONT_SKIP = 4           # beim Fahren ohne Wand vorne in Reichweite (Halt nach Encoder): vorne erst nach so vielen Seitenmessungen
+                            # wieder, dazwischen nur links/rechts im Wechsel (sonst kommt jede Seite nur alle ca. 4 cm dran)
 US_READINGS = 3             # so viele Messungen pro Sensor, wenn im Stand Wände gemessen werden (Median)
 US_BLIND_WARN = "Alle drei Ultraschallsensoren ohne Echo: Versorgung (3,3 V, GND) und Kabel prüfen"
 US_BLIND_STOP = 2           # so viele Wandmessungen hintereinander ganz ohne Echo (alle drei Sensoren) = Lauf anhalten
@@ -91,6 +95,15 @@ TURN_SPEED_DPS = 183
 FRONT_TRUST_CM = 100.0      # Wand vorne weiter weg als das: nur nach Encoder fahren
 STALL_S = 1.0               # Ketten drehen sich trotz Fahrbefehl so lange nicht: blockiert
 STALL_DEG = 6.0             # weniger Encoder-Bewegung (beide Ketten zusammen) gilt als Stillstand
+# Schlupf selbst lernen (`RealRobot.drive_ratio`): MOTOR_DEG_PER_CM ist mit halbem Tempo eingemessen, bei normalem Tempo sinkt der Abstand
+# vorne nur um ca. 0,87 der Encoderstrecke. Gelernt aus Fahrten, bei denen von Anfang bis Ende eine Wand vorne in Reichweite war;
+# der Halt nach Encoder (keine Wand vorne) fährt dann TILE_SIZE_CM / Faktor.
+DRIVE_RATIO_MIN_CM = 15.0       # nur Fahrten mit mindestens so viel Encoderstrecke zählen
+DRIVE_RATIO_ALPHA = 0.3         # gleitender Mittelwert: neu = (1 - alpha) · alt + alpha · gemessen
+DRIVE_RATIO_VALID_LOW = 0.6     # gemessene Verhältnisse außerhalb [LOW, HIGH] zählen nicht (anderes Echo, Rutschen)
+DRIVE_RATIO_VALID_HIGH = 1.1
+DRIVE_RATIO_LOW = 0.7           # der Mittelwert bleibt in [LOW, HIGH]
+DRIVE_RATIO_HIGH = 1.0
 FORWARD_TOLERANCE_CM = 8.0  # der Abstand vorne darf die Kachelstrecke um höchstens so viel ändern
 
 # PD-Regler beim Geradeausfahren. In der Fahrphysik-Simulation mit Rauschen/Schlupf vorab eingestellt,

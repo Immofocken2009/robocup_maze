@@ -366,10 +366,25 @@ class SimUltrasonic:
         return self.clock.monotonic() - self._last_ping >= config.US_CYCLE_S
 
     def measure(self, side: str) -> float | None:
+        self._cycle()
+        cm = self._reading(side)
+        self.last[side] = cm
+        return cm
+
+    def measure_pair(self, a: str, b: str) -> tuple[float | None, float | None]:
+        """Zwei Sensoren gleichzeitig: ein Zyklus für beide (die Simulation kennt kein Übersprechen)."""
+        self._cycle()
+        result = (self._reading(a), self._reading(b))
+        self.last[a], self.last[b] = result
+        return result
+
+    def _cycle(self):
         pause = config.US_CYCLE_S - (self.clock.monotonic() - self._last_ping)
         if pause > 0:
             self.clock.sleep(pause)
         self._last_ping = self.clock.monotonic()
+
+    def _reading(self, side: str) -> float | None:
         cm = self.body.distance(side)
         if self.noise:
             still = not any(self.body.speed)
@@ -377,7 +392,6 @@ class SimUltrasonic:
                 0, US_NOISE_STILL_CM if still else US_NOISE_CM)
         if cm is not None and cm > config.US_MAX_DISTANCE_CM:
             cm = None
-        self.last[side] = cm
         return cm
 
     def close(self):

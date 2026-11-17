@@ -155,8 +155,13 @@ class Recorder:
         self.instrument_clock(robot.clock)
         self.instrument(robot.motors, "motors", ["positions", "set_dps", "stop", "float"])
         us = robot.us
-        extra = {"measure": lambda: {"ns": us.last_echo_ns}} if hasattr(us, "last_echo_ns") else None
-        self.instrument(us, "us", ["ready", "measure"], extra=extra)
+        extra = {"measure": lambda: {"ns": us.last_echo_ns}} if hasattr(us, "last_echo_ns") else {}
+        methods = ["ready", "measure"]
+        if hasattr(us, "measure_pair"):         # links und rechts gleichzeitig (US_SIDES_TOGETHER): beide Pulsbreiten mitschreiben
+            methods.append("measure_pair")
+            if hasattr(us, "last_pair_ns"):
+                extra["measure_pair"] = lambda: {"ns": us.last_pair_ns}
+        self.instrument(us, "us", methods, extra=extra)
         self.instrument(robot.color, "color", ["read_raw"])
         self.instrument(robot, "robot", ["_read_interrupt", "load_settings"], sparse=("_read_interrupt",))
         robot.trace = self.calc

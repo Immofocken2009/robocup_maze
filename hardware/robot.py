@@ -14,7 +14,6 @@ import statistics
 import time
 from collections import Counter, deque
 from collections.abc import Callable
-from itertools import cycle
 
 import config
 from hardware.color_sensor import COLOR_TO_TILE, ColorSensor
@@ -111,8 +110,46 @@ def fit_slope(samples) -> float:
     return sum((t - ms) * (o - mo) for t, o in samples) / var if var > 0 else 0.0
 
 
+class UsSchedule:
+    """Reihenfolge der Ultraschallmessungen beim Fahren (`forward`/`backward`, gleich in beiden Richtungen).
+
+    Dichtes Messen: vorne, Seite, vorne, andere Seite, ... Das gilt, solange noch keine Vorne-Messung in der Fahrt vorliegt und
+    solange die letzte einen Rasterwert hatte (Wand in Reichweite, Haltepunkt nach Abstand vorne). Ohne Wand in Reichweite (Halt
+    nach Encoder) bringt vorne nichts: dann kommt vorne erst nach US_FRONT_SKIP Seitenschritten wieder dran, dazwischen
+    abwechselnd links und rechts (jede Seite alle ca. 2 statt 4 Zyklen). Taucht ein Rasterwert auf, ist wieder dichtes Messen.
+    Mit `together` (US_SIDES_TOGETHER) ist "links und rechts gleichzeitig" ein einziger Seitenschritt ("sides")."""
+
+    def __init__(self, together: bool | None = None, skip: int | None = None):
+        self.together = config.US_SIDES_TOGETHER if together is None else together
+        self.skip = config.US_FRONT_SKIP if skip is None else skip
+        self._since_front: int | None = None   # Seitenschritte seit der letzten Messung vorne, None = noch keine in der Fahrt
+        self._dense = True
+        self._left_next = True
+
+    def next(self) -> str:
+        """Nächster Schritt: "front", "left", "right" oder "sides" (beide Seiten gleichzeitig)."""
+        if self._since_front is None or self._since_front >= (1 if self._dense else max(1, self.skip)):
+            return "front"
+        if self.together:
+            return "sides"
+        return "left" if self._left_next else "right"
+
+    def done(self, step: str, grid: bool = False):
+        """Schritt ist gemessen; grid: bei "front" hatte die Messung einen Rasterwert (Wand in Reichweite)."""
+        if step == "front":
+            self._since_front, self._dense = 0, grid
+            return
+        self._since_front = (self._since_front or 0) + 1
+        if step in ("left", "right"):
+            self._left_next = step == "right"
+
+
 def _clamp(value: float, limit: float) -> float:
     return max(-limit, min(limit, value))
+
+
+def _clamp_range(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
 
 
 STEER_TEXT = {"both": "lenkt auf die Mitte zwischen beiden Wänden", "left": "lenkt an der linken Wand",
@@ -419,6 +456,9 @@ class RealRobot(RobotInterface):
         # Abstand vorne (cm) vom Kachelende (`_settle`), gültig nur, solange er sich seither nicht bewegt hat: spart `read_walls`
         # und dem nächsten `forward`/`backward` die Messung vorne. None = nicht vorhanden.
         self._front_fresh: float | None = None
+        # Gelernter Schlupf: um dieses Vielfache der Encoderstrecke ändert sich der Abstand vorne wirklich (normales Tempo ca. 0,87,
+        # MOTOR_DEG_PER_CM wurde mit halbem Tempo eingemessen). Start 1,0, gelernt in `_learn_ratio`, in `reset` zurück.
+        self.drive_ratio = 1.0
 
     # --- Steuerung durch main.py ------------------------------------------------
 
@@ -439,6 +479,7 @@ class RealRobot(RobotInterface):
         self.rear_free_cm = None
         self.front_free_cm = None
         self._front_fresh = None
+        self.drive_ratio = 1.0
         self.set_action("bereit")
 
     def relocated(self):
@@ -593,11 +634,12 @@ class RealRobot(RobotInterface):
             return None, fresh, "frisch"
         return None, self.us.median("front"), "gemessen"
 
-    def _settle(self):
+    def _settle(self) -> float | None:
         """Am Kachelende (nach Anhalten und Geradedrehen), wenn vorne eine Wand in Reichweite war: Abstand vorne messen und, wenn er
         um ARRIVE_FIX_MIN_CM bis ARRIVE_FIX_MAX_CM vom Kachelmitten-Abstand abweicht, nachsetzen (`arrival_fix`), dann noch einmal
-        messen. Der Wert bleibt in `_front_fresh` (für `read_walls` und den nächsten Start), im Normalfall kostet das also nichts extra."""
-        front = self.us.median_fast("front")
+        messen. Der Wert bleibt in `_front_fresh` (für `read_walls` und den nächsten Start), im Normalfall kostet das also nichts extra.
+        Ergebnis: die erste Messung (vor dem Nachsetzen), für `_learn_ratio`."""
+        front = first = self.us.median_fast("front")
         delta = arrival_fix(front)
         if delta:
             self.set_action("Setzt nach", f"{delta:+.1f} cm")
@@ -606,6 +648,23 @@ class RealRobot(RobotInterface):
             self.trace("nachgesetzt", vorne=front, soll=arrival_target(front), strecke=delta, danach=after)
             front = after
         self._front_fresh = front
+        return first
+
+    def _learn_ratio(self, front_start: float | None, front_end: float | None, dist: float, direction: int, tries: int):
+        """Schlupf lernen: Hatte die Fahrt von Anfang bis Ende eine Wand vorne in Reichweite (beide Messungen im Stand, kein Zurücksetzen,
+        mindestens DRIVE_RATIO_MIN_CM Encoderstrecke), ist (Abstandsänderung) / Encoderstrecke das Verhältnis, um das die Ketten
+        weniger Weg machen als die Encoder zählen. Nur Werte in [DRIVE_RATIO_VALID_LOW, _HIGH] zählen (sonst anderes Echo), der
+        gleitende Mittelwert (DRIVE_RATIO_ALPHA) bleibt in [DRIVE_RATIO_LOW, _HIGH]. direction -1 = rückwärts (Abstand wächst)."""
+        if tries or dist < config.DRIVE_RATIO_MIN_CM:
+            return
+        if any(v is None or v > config.FRONT_TRUST_CM for v in (front_start, front_end)):
+            return
+        measured = direction * (front_start - front_end) / dist
+        counted = config.DRIVE_RATIO_VALID_LOW <= measured <= config.DRIVE_RATIO_VALID_HIGH
+        if counted:
+            mixed = (1 - config.DRIVE_RATIO_ALPHA) * self.drive_ratio + config.DRIVE_RATIO_ALPHA * measured
+            self.drive_ratio = _clamp_range(mixed, config.DRIVE_RATIO_LOW, config.DRIVE_RATIO_HIGH)
+        self.trace("schlupf", gemessen=measured, mittel=self.drive_ratio, strecke=dist, gezählt=counted, richtung=direction)
 
     def forward(self, avoid: set[TileType]) -> MoveResult:
         values, front, source = self._start_values()
@@ -616,8 +675,9 @@ class RealRobot(RobotInterface):
         last_grid = stop_at                     # Raster der letzten Messung vorne (None = keine Wand in Reichweite)
         grid_hist: deque[float] = deque([] if stop_at is None else [stop_at], maxlen=config.FRONT_STOP_MEDIAN)
         stop_text = "Halt nach Abstand vorne" if stop_at is not None else "Halt nach Encoder"
-        stop_at = stop_at or config.TILE_SIZE_CM
-        self.trace("vorwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm, vorne_quelle=source)
+        stop_at = stop_at or config.TILE_SIZE_CM / self.drive_ratio     # Halt nach Encoder: gelernter Schlupf ausgeglichen
+        self.trace("vorwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm, vorne_quelle=source,
+                   faktor=self.drive_ratio)
 
         l0, r0 = self.motors.positions()
         base = 0.0                              # schon gefahrene cm vor l0/r0 (nach dem Zurücksetzen bei Wandkontakt neu gesetzt)
@@ -631,7 +691,7 @@ class RealRobot(RobotInterface):
         front_hist: deque[tuple[float, float]] = deque()    # (gefahrene cm, Abstand vorne) für das Festfahren vorne
         slipping = False
         self.set_action("fährt vorwärts", f"{stop_text}, {STEER_TEXT[steering.mode]}")
-        order = cycle(("front", "left", "front", "right"))
+        schedule = UsSchedule()
         corr, mode = 0.0, steering.mode
         bad, last_color_t = 0, 0.0
         stall = StallWatch(self.clock)
@@ -656,12 +716,12 @@ class RealRobot(RobotInterface):
                     self.drive_cm(-(base + self._travelled(l0, r0)))
                     return MoveResult(MoveStatus.AVOIDED, tile)
 
-            # Ultraschall: abwechselnd vorne und seitlich
+            # Ultraschall: vorne und seitlich, Reihenfolge siehe UsSchedule
             if self.us.ready():
-                side = next(order)
-                cm = self.us.measure(side)
-                travelled = base + self._travelled(l0, r0)
-                if side == "front":
+                step = schedule.next()
+                if step == "front":
+                    cm = self.us.measure("front")
+                    travelled = base + self._travelled(l0, r0)
                     grid = stop_distance(cm, travelled)
                     last_grid = grid
                     if grid is not None:            # Median der letzten Rasterwerte: ein Störimpuls verschiebt den Halt nicht
@@ -670,14 +730,20 @@ class RealRobot(RobotInterface):
                     self.trace("vorne", cm=cm, gefahren=travelled, raster=grid, halt_bei=stop_at, median=stop_at)
                     if grid is not None and not slipping:
                         slipping = self._front_slips(front_hist, travelled, cm)
+                    schedule.done("front", grid is not None)
                 else:
-                    l, r = self.encoders
-                    heading.track(travelled, self._eff(l0, r0))
-                    corr = steering.side(side, cm, travelled, self._eff(l0, r0))
-                    if steering.mode == "both":
-                        heading.sample(steering.offset)
-                    self.trace("seite", seite=side, cm=cm, gefahren=travelled, schräg_proben=len(heading.samples),
-                               **steering.values())
+                    readings = (list(zip(("left", "right"), self.us.measure_pair("left", "right"))) if step == "sides"
+                                else [(step, self.us.measure(step))])
+                    travelled = base + self._travelled(l0, r0)
+                    for side, cm in readings:
+                        l, r = self.encoders
+                        heading.track(travelled, self._eff(l0, r0))
+                        corr = steering.side(side, cm, travelled, self._eff(l0, r0))
+                        if steering.mode == "both":
+                            heading.sample(steering.offset)
+                        self.trace("seite", seite=side, cm=cm, gefahren=travelled, schräg_proben=len(heading.samples),
+                                   **steering.values())
+                    schedule.done(step)
 
             # Schleift an einer Seitenwand (Encoder zeigen es nicht): zurücksetzen, von der Wand weg drehen, weiterfahren.
             # Rutscht er vorne (Abstand sinkt viel weniger als die Encoderstrecke): zurücksetzen, ohne Wegdrehen.
@@ -787,8 +853,9 @@ class RealRobot(RobotInterface):
         last_grid = stop_at
         grid_hist: deque[float] = deque([] if stop_at is None else [stop_at], maxlen=config.FRONT_STOP_MEDIAN)
         stop_text = "Halt nach Abstand vorne" if stop_at is not None else "Halt nach Encoder"
-        stop_at = stop_at or config.TILE_SIZE_CM
-        self.trace("rückwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm, vorne_quelle=source)
+        stop_at = stop_at or config.TILE_SIZE_CM / self.drive_ratio
+        self.trace("rückwärts", vorne=front, halt_bei=stop_at, halt_nach=stop_text, gang=self.corridor_cm, vorne_quelle=source,
+                   faktor=self.drive_ratio)
 
         l0, r0 = self.motors.positions()
         base = 0.0                              # schon gefahrene cm (positiv) vor l0/r0, nach dem Vorsetzen neu gesetzt
@@ -802,7 +869,7 @@ class RealRobot(RobotInterface):
         front_hist: deque[tuple[float, float]] = deque()
         slipping = False
         self.set_action("fährt rückwärts", f"{stop_text}, {STEER_TEXT[steering.mode]}")
-        order = cycle(("front", "left", "front", "right"))
+        schedule = UsSchedule()
         corr, mode = 0.0, steering.mode
         stall = StallWatch(self.clock)
 
@@ -820,10 +887,10 @@ class RealRobot(RobotInterface):
             heading.track(travelled, (el, er))
 
             if self.us.ready():
-                side = next(order)
-                cm = self.us.measure(side)
-                travelled = distance()
-                if side == "front":
+                step = schedule.next()
+                if step == "front":
+                    cm = self.us.measure("front")
+                    travelled = distance()
                     grid = stop_distance_back(cm, travelled)
                     last_grid = grid
                     if grid is not None:
@@ -832,14 +899,20 @@ class RealRobot(RobotInterface):
                     self.trace("vorne", cm=cm, gefahren=travelled, raster=grid, halt_bei=stop_at, median=stop_at, richtung=-1)
                     if grid is not None and not slipping:
                         slipping = self._front_slips(front_hist, travelled, cm, -1)
+                    schedule.done("front", grid is not None)
                 else:
-                    el, er = self._eff(l0, r0)
-                    heading.track(travelled, (el, er))
-                    corr = steering.side(side, self._back_side(side, cm, heading.angle), travelled, enc())
-                    if steering.mode == "both":
-                        heading.sample(steering.offset)
-                    self.trace("seite", seite=side, cm=cm, gefahren=travelled, schräg_proben=len(heading.samples),
-                               richtung=-1, **steering.values())
+                    readings = (list(zip(("left", "right"), self.us.measure_pair("left", "right"))) if step == "sides"
+                                else [(step, self.us.measure(step))])
+                    travelled = distance()
+                    for side, cm in readings:
+                        el, er = self._eff(l0, r0)
+                        heading.track(travelled, (el, er))
+                        corr = steering.side(side, self._back_side(side, cm, heading.angle), travelled, enc())
+                        if steering.mode == "both":
+                            heading.sample(steering.offset)
+                        self.trace("seite", seite=side, cm=cm, gefahren=travelled, schräg_proben=len(heading.samples),
+                                   richtung=-1, **steering.values())
+                    schedule.done(step)
 
             # Rutscht er (Abstand vorne wächst viel weniger als die Encoderstrecke): vorsetzen, weiter; sonst wie blockiert
             if slipping and tries < config.CONTACT_MAX_TRIES:
@@ -1067,7 +1140,7 @@ class RealRobot(RobotInterface):
         if cm < 0 and self.rear_free_cm is not None:
             self.rear_free_cm = max(0.0, self.rear_free_cm + cm)
         if self.front_free_cm is not None:
-            self.front_free_cm = max(0.0, self.front_free_cm + cm)
+            self.front_free_cm = max(0.0, self.front_free_cm - cm)   # vorwärts (cm > 0) verkleinert den Raum vorne
         direction = 1 if cm >= 0 else -1
         l0, r0 = self.motors.positions()
         stall = StallWatch(self.clock)

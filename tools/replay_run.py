@@ -142,6 +142,11 @@ class ReplayUltrasonic:
         self.last[side] = cm
         return cm
 
+    def measure_pair(self, a: str, b: str) -> tuple[float | None, float | None]:
+        result = tuple(self.replay.take("us.measure_pair", (a, b)))
+        self.last[a], self.last[b] = result
+        return result
+
 
 class ReplayColor:
     read_color = ColorSensor.read_color     # gleiche Auswertung wie beim echten Sensor

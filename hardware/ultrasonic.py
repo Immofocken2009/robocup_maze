@@ -62,6 +62,7 @@ class Ultrasonic:
         self._last_ping = 0.0
         self.last: dict[str, float | None] = {side: None for side in SIDES}   # letzte Messung je Sensor
         self.last_echo_ns: int | None = None    # Pulsbreite der letzten Messung (für die Aufzeichnung)
+        self.last_pair_ns: tuple[int | None, int | None] = (None, None)   # Pulsbreiten der letzten `measure_pair`
 
     def ready(self) -> bool:
         """Darf jetzt ohne Warten gemessen werden?"""
@@ -80,18 +81,51 @@ class Ultrasonic:
         while time.perf_counter() - t < 15e-6:
             pass
         lgpio.gpio_write(self.chip, trigger, 0)
-        cm = None
         self.last_echo_ns = None
+        cm = None
         if echo.wait(config.US_ECHO_TIMEOUT_S):
             self.last_echo_ns = echo.width_ns
-            cm = echo.width_ns / 1e9 * config.SPEED_OF_SOUND_M_S / 2 * 100
-            if self.calibration and side in self.calibration:
-                factor, offset = self.calibration[side]
-                cm = factor * cm + offset
-            if cm > config.US_MAX_DISTANCE_CM:
-                cm = None
+            cm = self._convert(side, echo.width_ns)
         self.last[side] = cm
         return cm
+
+    def measure_pair(self, a: str, b: str) -> tuple[float | None, float | None]:
+        """Zwei Sensoren gleichzeitig: beide Trigger direkt nacheinander, dann beide Echos abwarten (ein Zyklus statt zwei,
+        gedacht für links und rechts, die in entgegengesetzte Richtungen schauen). Timeout und Kalibrierung wie `measure`.
+        Übersprechen prüfen mit `python3 -m tools.test_ultrasonic paar`."""
+        pause = config.US_CYCLE_S - (time.monotonic() - self._last_ping)
+        if pause > 0:
+            time.sleep(pause)
+        trigger_a, trigger_b = config.US_PINS[a]["trigger"], config.US_PINS[b]["trigger"]
+        echo_a, echo_b = self.echos[a], self.echos[b]
+        echo_a.arm()
+        echo_b.arm()
+        start = self._last_ping = time.monotonic()
+        lgpio.gpio_write(self.chip, trigger_a, 1)
+        lgpio.gpio_write(self.chip, trigger_b, 1)
+        t = time.perf_counter()
+        while time.perf_counter() - t < 15e-6:
+            pass
+        lgpio.gpio_write(self.chip, trigger_a, 0)
+        lgpio.gpio_write(self.chip, trigger_b, 0)
+        got_a = echo_a.wait(config.US_ECHO_TIMEOUT_S)
+        got_b = echo_b.wait(max(0.0, config.US_ECHO_TIMEOUT_S - (time.monotonic() - start)))
+        self.last_echo_ns = None
+        self.last_pair_ns = (echo_a.width_ns if got_a else None, echo_b.width_ns if got_b else None)
+        result = []
+        for side, width in zip((a, b), self.last_pair_ns):
+            cm = None if width is None else self._convert(side, width)
+            self.last[side] = cm
+            result.append(cm)
+        return result[0], result[1]
+
+    def _convert(self, side: str, width_ns: int) -> float | None:
+        """Echo-Pulsbreite -> cm (kalibriert); über US_MAX_DISTANCE_CM = None."""
+        cm = width_ns / 1e9 * config.SPEED_OF_SOUND_M_S / 2 * 100
+        if self.calibration and side in self.calibration:
+            factor, offset = self.calibration[side]
+            cm = factor * cm + offset
+        return None if cm > config.US_MAX_DISTANCE_CM else cm
 
     def median(self, side: str, n: int = config.US_READINGS) -> float | None:
         """Median aus n Messungen. None, wenn die Mehrheit kein Echo hatte."""
