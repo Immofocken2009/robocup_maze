@@ -93,6 +93,9 @@ async def robot_link(request: web.Request) -> web.WebSocketResponse:
     try:
         async for msg in ws:
             if msg.type == WSMsgType.TEXT:
+                if msg.data.startswith('{"type": "cam"'):    # Kamerabild: nicht als Zustand merken
+                    relay.session.send_cam(msg.data)
+                    continue
                 relay.last = msg.data
                 relay.session.send_text(msg.data)
     finally:

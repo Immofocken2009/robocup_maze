@@ -368,3 +368,6 @@ table.raw tr.future td { color: var(--muted); opacity: .7; }
   .views { gap: 0; }
   .views button { flex: 1; padding: 0 .1rem; font-size: .75rem; }   /* fünf Reiter müssen auf 360 px passen */
 }
+
+/* Kamerabild in der Roboter-Ansicht */
+canvas.cam { width: 100%; height: auto; aspect-ratio: 4 / 3; background: var(--ink, #222); }

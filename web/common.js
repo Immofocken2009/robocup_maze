@@ -42,6 +42,7 @@ function handle(msg) {
   else if (msg.type === "control") sim.setControl(msg);
   else if (msg.type === "robot_link") robot.setLink(msg.connected);
   else if (msg.type === "robot") robot.setState(msg);
+  else if (msg.type === "cam") robot.setCam(msg);
 }
 
 // --- Farben --------------------------------------------------------------------

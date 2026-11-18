@@ -261,6 +261,21 @@ FAN_FULL_C = 75.0           # ab hier (und bei Lesefehler) volle Leistung
 FAN_INTERVAL_S = 2.0        # so oft regeln
 CPU_HOT_C = 75.0            # darüber Warnung auf der Webseite
 
+# --- Kamera vorne (Orientierung), vision/ ----------------------------------------------
+# Camera Module v1 (OV5647, festes Fokus, ca. 54° x 41°). Nur Anzeige: die Auswertung steuert noch nichts.
+CAM_ENABLED = True
+CAM_SIZE = (320, 240)       # Bildgröße der Auswertung und der Webseite (Breite, Höhe)
+CAM_FPS = 15                # Bilder pro Sekunde der Kamera
+CAM_PUBLISH_S = 0.15        # höchstens so oft ein Bild an die Webseite (nur, wenn ein Browser verbunden ist)
+CAM_JPEG_QUALITY = 70
+CAM_HFOV_DEG = 54.0         # horizontaler Bildwinkel (Winkel der Kanten zur Fahrtrichtung)
+CAM_DARK_LEVEL = 25         # mittlere Helligkeit (0-255) darunter: zu dunkel, keine Kantensuche
+CAM_GRAD_MIN = 18           # kleinster Helligkeitssprung (0-255), der als Kante zählt
+CAM_VEDGE_SHARE = 0.30      # so viel Anteil der Bildhöhe muss eine senkrechte Kante tragen (Wandende, Ecke)
+CAM_LINE_TOL_PX = 3.0       # Abstand eines Punktes zur Boden/Wand-Linie, bis zu dem er zählt
+CAM_LINE_MIN_SPAN = 0.25    # eine Linie muss so viel der Bildbreite überspannen
+CAM_MOTION_MIN = 1.5        # mittlere Bildänderung (0-255) ab der „bewegt sich“ gilt
+
 # --- Roboterprogramm (main.py) -------------------------------------------------
 ROBOT_LINK_URL = f"ws://localhost:{WEB_PORT}/robot"   # dorthin schickt main.py seine Daten
 ROBOT_LINK_RETRY_S = 2.0    # Webseite nicht erreichbar: so oft neu versuchen

@@ -39,7 +39,7 @@
      Python-Modul in `web/`; Tests je Modul eine Datei, gemeinsame Nachbauten in `tests/fakes.py`. Wer eine Funktion in ein anderes
      Modul verschiebt, lässt den Namen am alten Ort importierbar (Re-Export mit `# noqa: F401`), damit andere Agenten nichts anpassen müssen.
    - **Jeder Agent prüft selbst:** `python3 -m pyflakes <seine Dateien>` und die Tests seines Moduls (`python3 -m unittest tests.test_xyz`);
-     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 263 Tests, ca. 105 s) und bei
+     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 273 Tests, ca. 105 s) und bei
      Änderungen an `web/` den Browser-Test (siehe Befehle). Die Tests laufen auch ohne Pi: `brickpi3`, `lgpio`, `smbus2` werden
      optional importiert (fehlen sie, schlägt erst das Anlegen der Hardware-Objekte fehl, auf dem Pi ändert sich nichts).
    - **Nachrechnen bleibt 1:1:** Reihenfolge und Inhalt der Hardware-Aufrufe (`clock`, `motors`, `us`, `color`) und der `trace`-Aufrufe
@@ -139,6 +139,9 @@ robocup/
 │   ├── pathfinding.py     #   Wegplanung
 │   ├── explorer.py        #   Erkundungslogik
 │   └── robot_interface.py #   Schnittstelle Explorer <-> Roboter (Simulation und echter Roboter)
+├── vision/                # Kamera vorne (Orientierung), seit 2026-11-18
+│   ├── camera.py          #   CameraFeed (eigener Thread, picamera2), Nachricht „cam“ an die Webseite
+│   └── analysis.py        #   Bildauswertung mit numpy (senkrechte Kanten, Linien Boden/Wand, Bodenausschnitt, Bewegung), ohne Hardware
 ├── simulation/            # Erkundung ohne echten Roboter testen
 │   ├── sim_robot.py       #   Labyrinth, Steuerung, kachelweiser Roboter (nur für die Tests)
 │   ├── sim_hardware.py    #   Fahrphysik: nachgebildete Ketten, Ultraschall, Farbsensor, Sim-Uhr
@@ -168,7 +171,7 @@ robocup/
 │                          #   fakes.py (nachgebaute Hardware, kein Testmodul), test_robot.py (RealRobot: vorwärts, Taster,
 │                          #   Einstellungen, blind), test_steering.py, test_centering.py, test_hardware.py (Motors.float,
 │                          #   Kalibrierprogramme, call.py), test_run_log.py, test_recordings.py, test_network.py,
-│                          #   test_sim_hardware.py, test_explorer.py, test_pathfinding.py, test_maze_map.py, test_maze_generator.py, test_fan.py
+│                          #   test_vision.py, test_sim_hardware.py, test_explorer.py, test_pathfinding.py, test_maze_map.py, test_maze_generator.py, test_fan.py
 ├── data/                  # Kalibrierwerte (colors.json, ultrasonic.json), Einstellungen der Webseite (settings.json)
 └── logs/                  # Aufzeichnungen der echten Läufe (ein Lauf = eine .jsonl.gz-Datei, nicht in Git)
 ```
@@ -625,6 +628,21 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   - **Nicht auf dem echten Roboter geprüft.** Schwellen (`COLOR_STD_MIN`, 6 Sigma verwerfen, 4 Sigma Mindestabstand) sind Schätzwerte; mit
     den ersten echten Streuungen prüfen. Beachten: Weiß und Silber liegen bei der Mindeststreuung 0,05 nur ca. 10 Sigma auseinander, ein
     Weiß mit +20 % Helligkeit zählt noch als Weiß, +40 % ist Silber.
+- **Kamera vorne** (entschieden 2026-11-18, Vorgabe Projektinhaber: zweite Kamera für die Orientierung, später kommt eine Pi AI Cam zur Wand
+  für Opfer): **Camera Module v1 (OV5647)**, CSI, festes Fokus, ca. 54° x 41° (kein Weitwinkel; für den Toten Winkel an den Ecken wäre ein
+  Weitwinkelmodell, z.B. Module 3 Wide, besser). Zurzeit nur geradeaus gerichtet, spätere Montage: vorne mittig 8-12 cm hoch, 15-25° nach unten geneigt.
+  Bibliothek `picamera2` (apt `python3-picamera2`, bringt numpy und PIL mit). **Stufe 0: nur Anzeige, die Fahrsteuerung nutzt die Kamera nicht.**
+  - `main.py` hält die Kamera offen (`CameraFeed`, eigener Thread, 320x240, `CAM_FPS` 15) und wertet jedes Bild aus (`vision/analysis.py`: senkrechte Kanten =
+    Wandende/Ecke mit Winkel, Linien Boden/Wand per RANSAC, Bodenausschnitt vor dem Roboter, Bildbewegung, zu dunkel). Bild (JPEG, base64) und Auswertung
+    gehen als Nachricht `{"type": "cam", ...}` über `/robot` an die Webseite, **nur wenn ein Browser verbunden ist** (`CAM_PUBLISH_S`), sie wird nicht als
+    „letzter Zustand“ gemerkt (`RobotRelay.last`) und langsamen Browsern übersprungen (`send_cam`, Warteschlange unter 4). Ansicht „Roboter“: Abschnitt „Kamera vorne“ in der Seitenleiste
+    mit Live-Bild, Einzeichnung (gelb Boden/Wand-Linien, blau senkrechte Kanten, weißer Kasten = Boden vor dem Roboter) und Zahlen.
+  - Fehlt die Kamera oder `picamera2`: Warnung auf der Webseite, der Roboter läuft normal (alle 2 s neuer Versuch). `CAM_ENABLED = False` schaltet sie ab.
+  - Die Kamera gehört dem Roboterdienst: andere Programme (`rpicam-*`, Tests) erst nach `sudo systemctl stop robocup-robot`.
+  - Nicht aufgezeichnet (noch kein Eingang des Fahrcodes); sobald die Auswertung steuert, kommen ihre Werte als aufgezeichneter Eingang dazu (Nachrechnen 1:1).
+  - Die Erkennung sind Kandidaten (weiße Wände auf weißem Boden, kontrastarm, Licht), Schwellen `CAM_*` in `config.py` mit echten Bildern abstimmen.
+    Farbreihenfolge (`BGR888` = Bytes [R, G, B]) und Kantenwerte noch nicht an echten Labyrinthbildern geprüft. Tests `tests/test_vision.py` (künstliche Bilder).
+  - Geplante Stufen: (1) Bildbewegung als Fortschrittsprüfung, (2) Wandende-Warnung im Toten Winkel, (3) Schrägstand/Versatz aus den Wandlinien, (4) Bodenfarben-Vorausschau.
 - **Exit-Signal:** wird ignoriert (keine Blinkhardware), der Roboter bleibt am Start einfach stehen.
 - **Ablauf:**
   - Beim Booten startet `main.py` (systemd) und wartet auf **K1** (Start).

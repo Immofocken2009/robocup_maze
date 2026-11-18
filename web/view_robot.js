@@ -10,11 +10,75 @@ const robot = {
   map: null,
 
   init() {
+    setInterval(() => {         // Kamerabild älter als 3 s: Hinweis statt eingefrorenem Bild
+      if (this.cam.msg && performance.now() - this.cam.at > 3000) $("rc-status").textContent = "Kein aktuelles Kamerabild";
+    }, 1000);
     this.map = new MapCanvas($("rb-map"), (m, now) => this.draw(m, now));
     $("rb-red-mode").replaceChildren(
       ...Object.entries(RED_MODE_NAMES).map(([m, name]) => new Option(name, m)));
     $("rb-red-mode").addEventListener("change", (e) => send({ cmd: "robot_red_mode", value: e.target.value }));
     this.render();
+  },
+
+  // --- Kamera: Bild und Einzeichnung (Pixelkoordinaten des Bildes) ---
+  cam: { img: new Image(), msg: null, at: 0 },
+
+  setCam(msg) {
+    const c = this.cam;
+    c.msg = msg;
+    c.at = performance.now();
+    c.img.onload = () => this.drawCam();
+    c.img.src = "data:image/jpeg;base64," + msg.jpeg;
+    const d = msg.det;
+    $("rc-status").textContent = "Live";
+    $("rc-bright").textContent = d.dark ? `${d.brightness} von 255 (zu dunkel, keine Kantensuche)` : `${d.brightness} von 255`;
+    $("rc-vedges").textContent = d.vertical_edges.length
+      ? d.vertical_edges.map((e) => `${e.bearing > 0 ? "+" : ""}${e.bearing}°`).join("  ") : "–";
+    $("rc-lines").textContent = d.lines.length ? d.lines.map((l) => `${l.angle}°`).join("  ") : "–";
+    $("rc-motion").textContent = `${d.motion} ${d.moving ? "(bewegt sich)" : "(steht)"}`;
+    $("rc-swatch").style.background = `rgb(${d.patch.rgb.join(",")})`;
+    $("rc-rgb").textContent = d.patch.rgb.join("  ");
+    $("rc-fps").textContent = `${msg.fps} / ${msg.load_ms} ms`;
+  },
+
+  drawCam() {
+    const c = this.cam, canvas = $("rb-cam");
+    if (!c.msg) return;
+    const d = c.msg.det;
+    if (canvas.width !== d.w || canvas.height !== d.h) { canvas.width = d.w; canvas.height = d.h; }
+    const g = canvas.getContext("2d");
+    g.drawImage(c.img, 0, 0, d.w, d.h);
+    g.font = "12px system-ui, sans-serif";
+    g.textBaseline = "top";
+    const label = (text, x, y, color) => {
+      const w = g.measureText(text).width + 6;
+      const lx = Math.max(0, Math.min(d.w - w, x)), ly = Math.max(0, Math.min(d.h - 16, y));
+      g.fillStyle = "rgba(0,0,0,.65)";
+      g.fillRect(lx, ly, w, 15);
+      g.fillStyle = color;
+      g.fillText(text, lx + 3, ly + 1);
+    };
+    g.lineWidth = 2;
+    // Boden/Wand-Linien
+    for (const l of d.lines) {
+      g.strokeStyle = "#ffd23f";
+      g.beginPath(); g.moveTo(l.x0, l.y0); g.lineTo(l.x1, l.y1); g.stroke();
+      label(`Boden/Wand ${l.angle}°`, (l.x0 + l.x1) / 2 - 30, (l.y0 + l.y1) / 2 + 4, "#ffd23f");
+    }
+    // senkrechte Kanten (Wandende, Ecke)
+    for (const e of d.vertical_edges) {
+      g.strokeStyle = "#4cc9f0";
+      g.beginPath(); g.moveTo(e.x, e.y0); g.lineTo(e.x, e.y1); g.stroke();
+      label(`Kante ${e.bearing > 0 ? "+" : ""}${e.bearing}°`, e.x + 3, e.y0, "#4cc9f0");
+    }
+    // Boden vor dem Roboter
+    const p = d.patch;
+    g.strokeStyle = "#fff"; g.lineWidth = 1;
+    g.strokeRect(p.x0, p.y0, p.x1 - p.x0, p.y1 - p.y0);
+    label("Boden", p.x0, p.y0 - 16, "#fff");
+    // Hinweise oben links
+    if (d.dark) label("zu dunkel", 4, 4, "#ff6b6b");
+    label(d.moving ? "Bild bewegt sich" : "Bild steht", 4, d.dark ? 22 : 4, d.moving ? "#80ed99" : "#aaa");
   },
 
   setLink(connected) {

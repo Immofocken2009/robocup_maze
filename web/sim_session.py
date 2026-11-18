@@ -238,6 +238,12 @@ class SimSession:
         for q in self.queues:
             q.put_nowait(data)
 
+    def send_cam(self, data: str):
+        """Kamerabild: nur an Browser, die nachkommen (sonst wächst die Warteschlange eines langsamen Browsers ohne Ende)."""
+        for q in self.queues:
+            if q.qsize() < 4:
+                q.put_nowait(data)
+
 
 class RobotRelay:
     """Verbindung zum Roboterprogramm: Zustand an alle Browser, Befehle zum Roboter."""

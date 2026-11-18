@@ -58,6 +58,20 @@
 
     <aside class="side">
       <section>
+        <h2>Kamera vorne</h2>
+        <canvas id="rb-cam" class="cam" width="320" height="240" aria-label="Live-Bild der Kamera mit erkannten Kanten"></canvas>
+        <p id="rc-status" class="muted small">Kein Kamerabild</p>
+        <dl>
+          <dt>Helligkeit</dt><dd id="rc-bright">–</dd>
+          <dt>Senkrechte Kanten</dt><dd id="rc-vedges">–</dd>
+          <dt>Boden/Wand-Linien</dt><dd id="rc-lines">–</dd>
+          <dt>Bildbewegung</dt><dd id="rc-motion">–</dd>
+          <dt>Boden vor dem Roboter</dt><dd><i id="rc-swatch" class="sw"></i><span id="rc-rgb">–</span></dd>
+          <dt>Bilder/s, Rechenzeit</dt><dd id="rc-fps">–</dd>
+        </dl>
+      </section>
+
+      <section>
         <h2>Erkannt</h2>
         <dl>
           <dt>Wand vorne</dt><dd id="rd-front">–</dd>

@@ -27,6 +27,7 @@ from hardware.robot import LackOfProgress, RealRobot, RunStopped, SensorsBlind, 
 from hardware.run_log import Clock, Recorder
 from hardware.ultrasonic import Ultrasonic
 from navigation.explorer import Explorer
+from vision.camera import CameraFeed
 
 log = logging.getLogger("robot")
 
@@ -109,6 +110,7 @@ class RobotProgram:
         self.ws: aiohttp.ClientWebSocketResponse | None = None
         self.closing = False
         self.fan = Fan()
+        self.camera: CameraFeed | None = None       # Kamera vorne (nur Anzeige)
         self.rec = Recorder()       # zeichnet jeden Lauf auf (logs/)
 
     # --- Taster (laufen im gpiozero-Thread) -------------------------------------
@@ -246,6 +248,8 @@ class RobotProgram:
 
     def shutdown(self):
         self.closing = True
+        if self.camera:
+            self.camera.close()
         if self.robot:
             self.robot.interrupt("stop")
             self.rec.closed.wait(1.0)       # laufende Aufzeichnung sauber abschließen
@@ -301,6 +305,8 @@ class RobotProgram:
                          "cpu_hot": fan.temp is not None and fan.temp >= config.CPU_HOT_C}
         if fan.warning:
             msg["warnings"].append(fan.warning)
+        if self.camera and self.camera.warning:
+            msg["warnings"].append(self.camera.warning)
         if msg["system"]["cpu_hot"]:
             msg["warnings"].append(f"CPU heiß ({fan.temp:.0f} °C)")
         if r:
@@ -357,6 +363,18 @@ class RobotProgram:
         if self.ws is not None and not self.ws.closed:
             asyncio.ensure_future(self.ws.send_str(data))
 
+    def _send_cam(self, msg: dict):
+        """Im Event-Loop: Kamerabild an die Webseite (nicht als „letzter Zustand“ merken)."""
+        if self.ws is not None and not self.ws.closed:
+            asyncio.ensure_future(self.ws.send_str(json.dumps(msg)))
+
+    def start_camera(self):
+        if not config.CAM_ENABLED:
+            return
+        self.camera = CameraFeed(lambda msg: self.loop.call_soon_threadsafe(self._send_cam, msg),
+                                 wanted=lambda: self.ws is not None and not self.ws.closed)
+        self.camera.start()
+
     async def link(self):
         """Verbindung zur Webseite halten und Befehle von dort annehmen."""
         async with aiohttp.ClientSession() as session:
@@ -391,6 +409,7 @@ def main():
     program = RobotProgram(loop)
     threading.Thread(target=program.worker, daemon=True).start()
     threading.Thread(target=program.fan_loop, daemon=True).start()
+    program.start_camera()
     link = loop.create_task(program.link())
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, link.cancel)
