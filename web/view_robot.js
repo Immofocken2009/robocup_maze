@@ -13,6 +13,17 @@ const robot = {
     setInterval(() => {         // Kamerabild älter als 3 s: Hinweis statt eingefrorenem Bild
       if (this.cam.msg && performance.now() - this.cam.at > 3000) $("rc-status").textContent = "Kein aktuelles Kamerabild";
     }, 1000);
+    const wrap = $("rb-cam-wrap");
+    const toggle = () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (wrap.requestFullscreen) wrap.requestFullscreen().catch(() => {});
+    };
+    $("rb-cam-full").addEventListener("click", toggle);
+    $("rb-cam").addEventListener("dblclick", toggle);
+    document.addEventListener("fullscreenchange", () => {
+      $("rb-cam-full").hidden = !!document.fullscreenElement;
+      this.drawCam();
+    });
     this.map = new MapCanvas($("rb-map"), (m, now) => this.draw(m, now));
     $("rb-red-mode").replaceChildren(
       ...Object.entries(RED_MODE_NAMES).map(([m, name]) => new Option(name, m)));
@@ -45,8 +56,12 @@ const robot = {
     const c = this.cam, canvas = $("rb-cam");
     if (!c.msg) return;
     const d = c.msg.det;
-    if (canvas.width !== d.w || canvas.height !== d.h) { canvas.width = d.w; canvas.height = d.h; }
+    // Im Vollbild feiner zeichnen (ganze Pixel je Bildpunkt), damit Linien und Schrift scharf bleiben
+    const k = document.fullscreenElement
+      ? Math.max(1, Math.floor(Math.min(screen.width / d.w, screen.height / d.h) * (window.devicePixelRatio || 1))) : 1;
+    if (canvas.width !== d.w * k || canvas.height !== d.h * k) { canvas.width = d.w * k; canvas.height = d.h * k; }
     const g = canvas.getContext("2d");
+    g.setTransform(k, 0, 0, k, 0, 0);
     g.drawImage(c.img, 0, 0, d.w, d.h);
     g.font = "12px system-ui, sans-serif";
     g.textBaseline = "top";

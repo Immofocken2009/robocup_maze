@@ -59,7 +59,10 @@
     <aside class="side">
       <section>
         <h2>Kamera vorne</h2>
-        <canvas id="rb-cam" class="cam" width="320" height="240" aria-label="Live-Bild der Kamera mit erkannten Kanten"></canvas>
+        <div id="rb-cam-wrap" class="camwrap">
+          <canvas id="rb-cam" class="cam" width="320" height="240" aria-label="Live-Bild der Kamera mit erkannten Kanten"></canvas>
+          <button type="button" id="rb-cam-full" class="camfull" title="Vollbild (Esc oder Doppelklick beendet es)">Vollbild</button>
+        </div>
         <p id="rc-status" class="muted small">Kein Kamerabild</p>
         <dl>
           <dt>Helligkeit</dt><dd id="rc-bright">–</dd>
