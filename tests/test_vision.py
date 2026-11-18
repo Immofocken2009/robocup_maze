@@ -81,10 +81,11 @@ class FakeSource:
         self.frames = list(frames)
         self.closed = False
 
-    def capture(self):
+    def capture(self, full=False):
         if not self.frames:
             raise RuntimeError("keine Bilder mehr")
-        return self.frames.pop(0)
+        frame = self.frames.pop(0)
+        return frame, (frame if full else None)
 
     def close(self):
         self.closed = True
@@ -128,6 +129,147 @@ class CameraFeedTest(unittest.TestCase):
         self.assertEqual(messages, [])
         self.assertIn("Kamera nicht verfügbar", feed.warning)
         self.assertIn("picamera2", feed.warning)
+
+
+class FakeRec:
+    """Nachbau von hardware.run_log.Recorder für die Kamera-Aufzeichnung."""
+
+    def __init__(self, path):
+        from types import SimpleNamespace
+        self.log = SimpleNamespace(path=path)
+        self.records = []
+
+    def write(self, kind, **values):
+        self.records.append({"k": kind, **values})
+
+    def now(self):
+        import time
+        return round(time.monotonic(), 4)
+
+
+@unittest.skipIf(np is None, "numpy fehlt")
+class RecordingTest(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.path = Path(self.dir.name) / "2026-01-01_10-00-00.jsonl.gz"
+        self.saved = (config.CAM_RECORD_MODE, config.CAM_DEBUG_FPS, config.CAM_REC_FPS)
+        self.addCleanup(lambda: (setattr(config, "CAM_RECORD_MODE", self.saved[0]), setattr(config, "CAM_DEBUG_FPS", self.saved[1]),
+                                 setattr(config, "CAM_REC_FPS", self.saved[2])))
+
+    def record(self, mode, fps, frames=200, wait=0.6):
+        config.CAM_RECORD_MODE, config.CAM_DEBUG_FPS, config.CAM_REC_FPS = mode, fps, fps
+        frame = image(lambda y, x: np.where(x < 240, 200, 90))
+        feed = CameraFeed(lambda m: None, wanted=lambda: False, source_factory=lambda: FakeSource([frame] * frames),
+                          encode=lambda rgb, q: b"JPEG%d" % rgb.shape[1])     # kein echtes JPEG nötig: Bytes zählen
+        rec = FakeRec(self.path)
+        feed.start()
+        feed.start_recording(rec)
+        import time
+        time.sleep(wait)
+        info = feed.recording_info()
+        feed.close()
+        return feed, rec, info
+
+    def test_cam_path(self):
+        from vision.recording import cam_path
+        self.assertEqual(cam_path(self.path).name, "2026-01-01_10-00-00.cam")
+
+    def test_records_index_lines_and_file(self):
+        feed, rec, info = self.record("normal", 20.0)
+        self.assertTrue(info["on"])
+        cams = [r for r in rec.records if r["k"] == "cam"]
+        self.assertGreaterEqual(len(cams), 3)
+        data = (self.path.parent / "2026-01-01_10-00-00.cam").read_bytes()
+        offset = 0
+        for r in cams:
+            self.assertEqual(r["off"], offset)
+            self.assertEqual(data[r["off"]:r["off"] + r["len"]], b"JPEG320")
+            self.assertEqual((r["w"], r["h"]), (W, H))
+            self.assertIn("vertical_edges", r["det"])
+            offset += r["len"]
+        self.assertEqual(len(data), offset)
+        self.assertIsNone(feed.recorder)            # nach close() beendet
+
+    def test_rate_is_limited(self):
+        _, rec, _ = self.record("normal", 5.0, wait=1.1)
+        cams = [r for r in rec.records if r["k"] == "cam"]
+        self.assertTrue(3 <= len(cams) <= 8, len(cams))
+
+    def test_mode_off_records_nothing(self):
+        feed, rec, info = self.record("aus", 5.0, wait=0.3)
+        self.assertFalse(info["on"])
+        self.assertEqual(rec.records, [])
+        self.assertFalse(list(self.path.parent.glob("*.cam")))
+
+    def test_low_disk_space_disables_recording(self):
+        import vision.camera as cam
+        old = cam.free_mb
+        cam.free_mb = lambda path: 10.0
+        self.addCleanup(lambda: setattr(cam, "free_mb", old))
+        feed, rec, info = self.record("normal", 5.0, wait=0.3)
+        self.assertFalse(info["on"])
+        self.assertIn("MB frei", feed.rec_warning)
+
+
+@unittest.skipIf(np is None, "numpy fehlt")
+class CamReviewTest(unittest.TestCase):
+    """tools/cam_review.py auf einer kleinen künstlichen Aufzeichnung."""
+
+    def setUp(self):
+        import gzip
+        import json
+        import tempfile
+        from pathlib import Path
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("PIL fehlt")
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.path = Path(self.dir.name) / "2026-01-01_10-00-00.jsonl.gz"
+        det = {"w": W, "h": H, "brightness": 120.0, "dark": False, "motion": 1.0, "moving": False,
+               "vertical_edges": [{"x": 200, "y0": 40, "y1": 200, "share": .5, "bearing": 8.0}],
+               "lines": [{"x0": 20, "y0": 150, "x1": 300, "y1": 160, "n": 30, "angle": 2.0}], "patch": {}}
+        records = [{"k": "head", "t": 0.0}]
+        blob = b""
+        import io
+        for i in range(6):
+            buf = io.BytesIO()
+            Image.new("RGB", (640, 480), (40 * i, 100, 100)).save(buf, "JPEG")
+            jpeg = buf.getvalue()
+            records.append({"k": "cam", "t": i + .1, "ct": float(i), "off": len(blob), "len": len(jpeg), "w": 640, "h": 480, "det": det})
+            blob += jpeg
+        records.append({"k": "state", "t": 0.5, "msg": {"action": "fährt"}})
+        records.append({"k": "calc", "t": 3.2, "what": "rutscht"})
+        records.append({"k": "end", "t": 6.0})
+        with gzip.open(self.path, "wt", encoding="utf-8") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in records))
+        (Path(self.dir.name) / "2026-01-01_10-00-00.cam").write_bytes(blob)
+
+    def test_stats_lists_frames_and_events(self):
+        from tools.cam_review import Run, stats
+        text = stats(Run(self.path))
+        self.assertEqual(text.count("fährt"), 5)       # das erste Bild kommt vor dem ersten Zustand
+        self.assertIn("3.2s rutscht", text)
+
+    def test_sheet_with_events_contains_event_frame(self):
+        from PIL import Image
+        from tools.cam_review import Run, pick, sheet
+        from pathlib import Path
+        run = Run(self.path)
+        picked = pick(run, 4, events=True)
+        self.assertEqual([round(f["ct"]) for f, _ in picked], [3])
+        out = sheet(run, 4, 2, False, Path(self.dir.name) / "s.jpg")
+        self.assertEqual(Image.open(out).size, (800, 600))      # 4 Bilder, 2 Spalten, 400 x 300
+
+    def test_frame_extracts_jpeg(self):
+        from PIL import Image
+        from tools.cam_review import Run
+        run = Run(self.path)
+        self.assertEqual(run.image(run.frame_near(2.2)).size, (640, 480))
 
 
 if __name__ == "__main__":

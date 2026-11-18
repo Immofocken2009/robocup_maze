@@ -39,7 +39,7 @@
      Python-Modul in `web/`; Tests je Modul eine Datei, gemeinsame Nachbauten in `tests/fakes.py`. Wer eine Funktion in ein anderes
      Modul verschiebt, lässt den Namen am alten Ort importierbar (Re-Export mit `# noqa: F401`), damit andere Agenten nichts anpassen müssen.
    - **Jeder Agent prüft selbst:** `python3 -m pyflakes <seine Dateien>` und die Tests seines Moduls (`python3 -m unittest tests.test_xyz`);
-     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 273 Tests, ca. 105 s) und bei
+     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 281 Tests, ca. 105 s) und bei
      Änderungen an `web/` den Browser-Test (siehe Befehle). Die Tests laufen auch ohne Pi: `brickpi3`, `lgpio`, `smbus2` werden
      optional importiert (fehlen sie, schlägt erst das Anlegen der Hardware-Objekte fehl, auf dem Pi ändert sich nichts).
    - **Nachrechnen bleibt 1:1:** Reihenfolge und Inhalt der Hardware-Aufrufe (`clock`, `motors`, `us`, `color`) und der `trace`-Aufrufe
@@ -140,7 +140,8 @@ robocup/
 │   ├── explorer.py        #   Erkundungslogik
 │   └── robot_interface.py #   Schnittstelle Explorer <-> Roboter (Simulation und echter Roboter)
 ├── vision/                # Kamera vorne (Orientierung), seit 2026-11-18
-│   ├── camera.py          #   CameraFeed (eigener Thread, picamera2), Nachricht „cam“ an die Webseite
+│   ├── camera.py          #   CameraFeed (eigener Thread, picamera2), Nachricht „cam“ an die Webseite, steuert die Aufzeichnung
+│   ├── recording.py       #   CamRecorder: Rohbilder eines Laufs nach logs/<Lauf>.cam, Index als Zeilen „cam“ im Lauf-Log
 │   └── analysis.py        #   Bildauswertung mit numpy (senkrechte Kanten, Linien Boden/Wand, Bodenausschnitt, Bewegung), ohne Hardware
 ├── simulation/            # Erkundung ohne echten Roboter testen
 │   ├── sim_robot.py       #   Labyrinth, Steuerung, kachelweiser Roboter (nur für die Tests)
@@ -639,7 +640,20 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
     mit Live-Bild, Einzeichnung (gelb Boden/Wand-Linien, blau senkrechte Kanten, weißer Kasten = Boden vor dem Roboter) und Zahlen.
   - Fehlt die Kamera oder `picamera2`: Warnung auf der Webseite, der Roboter läuft normal (alle 2 s neuer Versuch). `CAM_ENABLED = False` schaltet sie ab.
   - Die Kamera gehört dem Roboterdienst: andere Programme (`rpicam-*`, Tests) erst nach `sudo systemctl stop robocup-robot`.
-  - Nicht aufgezeichnet (noch kein Eingang des Fahrcodes); sobald die Auswertung steuert, kommen ihre Werte als aufgezeichneter Eingang dazu (Nachrechnen 1:1).
+  - **Aufzeichnung ab Laufstart** (entschieden 2026-11-18, Vorgabe Projektinhaber: Debug-Modus mit maximaler Auflösung für die ersten Läufe, danach prüfen, ob es mit
+    weniger geht): `main._run` startet sie direkt nach `rec.start_run` (`CameraFeed.start_recording`) und beendet sie vor `rec.stop`; vor dem Lauf und danach wird nichts
+    aufgezeichnet. `config.CAM_RECORD_MODE`: **„debug“** = Rohbilder in voller Sensorgröße (`CAM_DEBUG_SIZE` 2592x1944, `CAM_DEBUG_FPS` 1,0 = ca. 480 Bilder je Lauf,
+    JPEG `CAM_DEBUG_QUALITY` 92; gemessen ca. 390-470 KB je Bild im dunklen Raum, also ca. 200-250 MB je Lauf), „normal“ = `CAM_SIZE` mit `CAM_REC_FPS` (5), „aus“.
+    Die Kamera läuft dafür mit zwei Strömen (groß für die Aufzeichnung, klein 320x240 vom ISP für die Auswertung): 15 Bilder/s Auswertung laufen unverändert
+    weiter (gemessen 15,2 bei 1 Vollbild/s). Dateien: `logs/<Datum>_<Uhrzeit>.cam` (JPEGs hintereinander, Rohbilder ohne Einzeichnung) und je Bild eine Zeile `cam` im
+    Lauf-Log: `t` (Schreibzeit), `ct` (Aufnahmezeit, Uhr wie alle Einträge), `off`/`len` (Lage in der .cam-Datei), `w`/`h`, `det` (Auswertung des kleinen Bilds, Koordinaten
+    dort). Kodieren und Schreiben in einem eigenen Thread (`CamRecorder`), wartende Bilder über 3 werden verworfen und gezählt (die Fahrt hat Vorrang). Unter
+    `CAM_REC_MIN_FREE_MB` (2000) freiem Platz (beim Start und alle 50 Bilder) wird nicht (mehr) aufgezeichnet, Warnung auf der Webseite. Nichts wird automatisch gelöscht.
+    Das Nachrechnen (`tools/replay_run.py`) ignoriert die Zeilen `cam`; sobald die Auswertung die Fahrt steuert, kommen ihre Werte als aufgezeichneter Eingang dazu.
+  - **Auswerten ohne das Session-Limit zu sprengen** (Vorgabe Projektinhaber: ca. 500 Bilder je Lauf): Bilder nie einzeln ansehen. `python3 -m tools.cam_review stats` (Tabelle als
+    Text), `sheet` (Kontaktbogen: viele Bilder verkleinert mit Zeit, Aktion und Einzeichnung in EINEM Bild; `--events` = Bilder um Rutscht/Schleift/Kein Fortschritt/
+    Rückzug/Blockiert), `frame <Zeit>` (ein Bild voll). Neue Auswertung/Schwellen offline mit Skripten über alle Bilder rechnen und nur Zahlen ansehen; Bildansicht an Haiku-Agenten
+    geben (Regel 7), die nur Text zurückmelden. Ausgaben in `logs/review/`.
   - Die Erkennung sind Kandidaten (weiße Wände auf weißem Boden, kontrastarm, Licht), Schwellen `CAM_*` in `config.py` mit echten Bildern abstimmen.
     Farbreihenfolge (`BGR888` = Bytes [R, G, B]) und Kantenwerte noch nicht an echten Labyrinthbildern geprüft. Tests `tests/test_vision.py` (künstliche Bilder).
   - Geplante Stufen: (1) Bildbewegung als Fortschrittsprüfung, (2) Wandende-Warnung im Toten Winkel, (3) Schrägstand/Versatz aus den Wandlinien, (4) Bodenfarben-Vorausschau.

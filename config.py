@@ -274,6 +274,13 @@ CAM_GRAD_MIN = 18           # kleinster Helligkeitssprung (0-255), der als Kante
 CAM_VEDGE_SHARE = 0.30      # so viel Anteil der Bildhöhe muss eine senkrechte Kante tragen (Wandende, Ecke)
 CAM_LINE_TOL_PX = 3.0       # Abstand eines Punktes zur Boden/Wand-Linie, bis zu dem er zählt
 CAM_LINE_MIN_SPAN = 0.25    # eine Linie muss so viel der Bildbreite überspannen
+CAM_RECORD_MODE = "debug"   # Bilder im Lauf aufzeichnen: "debug" = Rohbilder in voller Auflösung, "normal" = wie CAM_SIZE, "aus"
+CAM_DEBUG_SIZE = (2592, 1944)   # volle Auflösung des Sensors (OV5647), gilt im Modus "debug"
+CAM_DEBUG_FPS = 1.0         # Bilder pro Sekunde im Modus "debug" (ca. 480 je 8-Minuten-Lauf)
+CAM_DEBUG_QUALITY = 92      # JPEG-Qualität im Modus "debug"
+CAM_REC_FPS = 5.0           # Bilder pro Sekunde im Modus "normal"
+CAM_REC_QUALITY = 80        # JPEG-Qualität im Modus "normal"
+CAM_REC_MIN_FREE_MB = 2000  # weniger freier Platz auf der Karte: nicht (mehr) aufzeichnen, Warnung
 CAM_MOTION_MIN = 1.5        # mittlere Bildänderung (0-255) ab der „bewegt sich“ gilt
 
 # --- Roboterprogramm (main.py) -------------------------------------------------

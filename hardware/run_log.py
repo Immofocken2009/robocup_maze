@@ -231,6 +231,10 @@ class Recorder:
         if log is not None:
             log.write({"k": kind, "t": round(self._time() - self._t0, 4), **values})
 
+    def now(self) -> float:
+        """Sekunden seit Beginn der Aufzeichnung (für Einträge aus anderen Threads, z.B. Kamerabilder)."""
+        return round(self._time() - self._t0, 4)
+
     def calc(self, what: str, **values):
         """Rechenschritt (vom Fahrcode und Explorer aufgerufen)."""
         if self.recording():

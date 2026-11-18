@@ -216,12 +216,16 @@ class RobotProgram:
         self.explorer = Explorer(robot, red_mode=self.red_mode, on_update=self._explorer_update,
                                  trace=self.rec.calc)
         self.rec.start_run(robot, self.red_mode)
+        if self.camera:
+            self.camera.start_recording(self.rec)       # Kamerabilder nur ab Laufstart
         calibrate = self.rec.flow("calibrate", calibrate)
         stopped = False
         try:
             stopped = competition(robot, self.explorer, self._wait_lop, self._set_status, calibrate)
         finally:
             self.status = "finished"
+            if self.camera:
+                self.camera.stop_recording()
             self.rec.stop(mode=self.explorer.mode, stopped=stopped, visited=len(self.explorer.maze.visited))
         return stopped
 
@@ -307,6 +311,10 @@ class RobotProgram:
             msg["warnings"].append(fan.warning)
         if self.camera and self.camera.warning:
             msg["warnings"].append(self.camera.warning)
+        if self.camera and self.camera.rec_warning:
+            msg["warnings"].append(self.camera.rec_warning)
+        if self.camera and self.camera.recorder and self.camera.recorder.warning:
+            msg["warnings"].append(self.camera.recorder.warning)
         if msg["system"]["cpu_hot"]:
             msg["warnings"].append(f"CPU heiß ({fan.temp:.0f} °C)")
         if r:

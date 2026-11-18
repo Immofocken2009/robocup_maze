@@ -50,6 +50,9 @@ const robot = {
     $("rc-swatch").style.background = `rgb(${d.patch.rgb.join(",")})`;
     $("rc-rgb").textContent = d.patch.rgb.join("  ");
     $("rc-fps").textContent = `${msg.fps} / ${msg.load_ms} ms`;
+    const r = msg.rec;
+    $("rc-rec").textContent = !r || r.mode === "aus" ? "aus" : r.on
+      ? `läuft (${r.mode}): ${r.frames} Bilder` + (r.dropped ? `, ${r.dropped} verworfen` : "") : `bereit (${r.mode}), startet mit dem Lauf`;
   },
 
   drawCam() {
