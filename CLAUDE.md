@@ -39,7 +39,7 @@
      Python-Modul in `web/`; Tests je Modul eine Datei, gemeinsame Nachbauten in `tests/fakes.py`. Wer eine Funktion in ein anderes
      Modul verschiebt, lässt den Namen am alten Ort importierbar (Re-Export mit `# noqa: F401`), damit andere Agenten nichts anpassen müssen.
    - **Jeder Agent prüft selbst:** `python3 -m pyflakes <seine Dateien>` und die Tests seines Moduls (`python3 -m unittest tests.test_xyz`);
-     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 281 Tests, ca. 105 s) und bei
+     die Hauptsitzung lässt danach die ganze Suite laufen (`python3 -m unittest discover -s tests`, 282 Tests, ca. 105 s) und bei
      Änderungen an `web/` den Browser-Test (siehe Befehle). Die Tests laufen auch ohne Pi: `brickpi3`, `lgpio`, `smbus2` werden
      optional importiert (fehlen sie, schlägt erst das Anlegen der Hardware-Objekte fehl, auf dem Pi ändert sich nichts).
    - **Nachrechnen bleibt 1:1:** Reihenfolge und Inhalt der Hardware-Aufrufe (`clock`, `motors`, `us`, `color`) und der `trace`-Aufrufe
@@ -635,8 +635,9 @@ Karte und Grenzkacheln (Frontier) statt Wandfolgen.
   Bibliothek `picamera2` (apt `python3-picamera2`, bringt numpy und PIL mit). **Stufe 0: nur Anzeige, die Fahrsteuerung nutzt die Kamera nicht.**
   - `main.py` hält die Kamera offen (`CameraFeed`, eigener Thread, 320x240, `CAM_FPS` 15) und wertet jedes Bild aus (`vision/analysis.py`: senkrechte Kanten =
     Wandende/Ecke mit Winkel, Linien Boden/Wand per RANSAC, Bodenausschnitt vor dem Roboter, Bildbewegung, zu dunkel). Bild (JPEG, base64) und Auswertung
-    gehen als Nachricht `{"type": "cam", ...}` über `/robot` an die Webseite, **nur wenn ein Browser verbunden ist** (`CAM_PUBLISH_S`), sie wird nicht als
-    „letzter Zustand“ gemerkt (`RobotRelay.last`) und langsamen Browsern übersprungen (`send_cam`, Warteschlange unter 4). Ansicht „Roboter“: Abschnitt „Kamera vorne“ in der Seitenleiste
+    gehen als **Binärnachricht** (JSON) `{"type": "cam", ...}` über `/robot` an die Webseite (Binär = flüchtig, wird nicht als „letzter Zustand“ in `RobotRelay.last` gemerkt) und
+    **nur wenn ein Browser zuschaut** (`CAM_PUBLISH_S`): `web/server.py` meldet dem Roboterprogramm bei jedem Zu-/Abgang eines Browsers `{"cmd": "viewers", "count": n}`
+    (`RobotRelay.sync_viewers`), ohne Zuschauer wird nicht kodiert. Langsame Browser überspringen Bilder (`send_cam`, Warteschlange unter 4). Ansicht „Roboter“: Abschnitt „Kamera vorne“ in der Seitenleiste
     mit Live-Bild, Einzeichnung (gelb Boden/Wand-Linien, blau senkrechte Kanten, weißer Kasten = Boden vor dem Roboter) und Zahlen.
   - Fehlt die Kamera oder `picamera2`: Warnung auf der Webseite, der Roboter läuft normal (alle 2 s neuer Versuch). `CAM_ENABLED = False` schaltet sie ab.
   - Die Kamera gehört dem Roboterdienst: andere Programme (`rpicam-*`, Tests) erst nach `sudo systemctl stop robocup-robot`.

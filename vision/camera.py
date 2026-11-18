@@ -14,7 +14,6 @@ from vision.analysis import Analyzer
 from vision.recording import CamRecorder, cam_path, free_mb
 
 log = logging.getLogger("vision")
-RETRY_S = 2.0       # nach einem Fehler so lange warten
 
 
 def record_settings():
@@ -90,7 +89,6 @@ class CameraFeed:
         self.rec_warning: str | None = None
         self._rec_interval = 0.0
         self._rec_due = 0.0
-        self._rec_clock = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -127,7 +125,6 @@ class CameraFeed:
             return
         self._rec_interval = 1.0 / fps
         self._rec_due = 0.0
-        self._rec_clock = rec.now
         log.info("Kamera-Aufzeichnung: %s (%dx%d, %.1f Bilder/s)", path.name, size[0], size[1], fps)
 
     def stop_recording(self):
@@ -136,6 +133,11 @@ class CameraFeed:
             recorder.close()
             log.info("Kamera-Aufzeichnung beendet: %d Bilder, %d verworfen, %.0f MB", recorder.frames, recorder.dropped,
                      recorder.bytes / 1e6)
+
+    def warnings(self) -> list[str]:
+        """Meldungen für die Webseite: Kamera fehlt, Aufzeichnung aus oder gestoppt."""
+        r = self.recorder
+        return [w for w in (self.warning, self.rec_warning, r.warning if r else None) if w]
 
     def recording_info(self) -> dict:
         r = self.recorder
@@ -167,7 +169,7 @@ class CameraFeed:
                 fps_n += 1
                 if want_full and full is not None:
                     self._rec_due = now + self._rec_interval
-                    recorder.submit(self._rec_clock(), full, det)
+                    recorder.submit(recorder.rec.now(), full, det)
                 if t0 - fps_t >= 2.0:
                     fps, fps_t, fps_n = fps_n / (t0 - fps_t), t0, 0
                 if t0 - last_sent >= config.CAM_PUBLISH_S and self.wanted():
@@ -183,7 +185,7 @@ class CameraFeed:
                 self.warning = f"Kamera nicht verfügbar ({text})"
                 self._release(source)
                 source = None
-                self._stop.wait(RETRY_S)
+                self._stop.wait(config.CAM_RETRY_S)
         self._release(source)
 
     @staticmethod

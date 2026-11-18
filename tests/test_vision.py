@@ -45,6 +45,13 @@ class AnalysisTest(unittest.TestCase):
         self.assertGreater(edges[0]["bearing"], 10)          # rechts der Fahrtrichtung
         self.assertEqual(det["lines"], [])                   # keine waagerechte Kante
 
+    def test_detections_are_json_serializable(self):
+        """Die Auswertung geht als JSON an die Webseite und ins Lauf-Log: keine numpy-Zahlen im Ergebnis."""
+        import json
+        for fn in (lambda y, x: np.where(x < 240, 200, 90), lambda y, x: np.where(y < 100 + 0.3 * x, 210, 90),
+                   lambda y, x: np.full_like(x, 150)):
+            json.dumps(Analyzer().analyse(image(fn)))
+
     def test_horizontal_boundary_is_a_flat_line(self):
         det = Analyzer().analyse(image(lambda y, x: np.where(y < 150, 210, 90)))
         self.assertEqual(det["vertical_edges"], [])

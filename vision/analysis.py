@@ -32,18 +32,16 @@ def vertical_edges(gx: np.ndarray, gy: np.ndarray, focal_px: float, width: int) 
     """Spalten, in denen über einen großen Teil der Höhe waagerechte Helligkeitssprünge liegen (und nicht senkrechte)."""
     h = gx.shape[0]
     y0, y1 = int(BAND[0] * h), int(BAND[1] * h)
-    gxb, gyb = gx[y0:y1], gy[y0:y1, 1:-1]
-    rows = min(len(gxb), len(gyb))
-    if rows == 0:
+    if y1 <= y0:
         return []
-    mask = (gxb[:rows] > config.CAM_GRAD_MIN) & (gxb[:rows] > 2 * gyb[:rows])
-    share = mask.mean(axis=0)
-    share = np.convolve(share, np.ones(5) / 5, mode="same")
+    # Spalte i von gx/gy[:, 1:-1] gehört zum Bildpunkt x = i + 1
+    mask = (gx[y0:y1] > config.CAM_GRAD_MIN) & (gx[y0:y1] > 2 * gy[y0:y1, 1:-1])
+    share = np.convolve(mask.mean(axis=0), np.ones(5) / 5, mode="same")
     found = []
-    for i in range(len(share)):
+    for i in map(int, np.nonzero(share >= config.CAM_VEDGE_SHARE)[0]):
         lo, hi = max(0, i - 6), min(len(share), i + 7)
-        if share[i] >= config.CAM_VEDGE_SHARE and share[i] == share[lo:hi].max() and (
-                i == lo or share[i] > share[lo:i].max()):
+        # größter Wert im Fenster, bei gleichen Werten (Plateau) nur der erste
+        if share[i] == share[lo:hi].max() and share[i] > share[lo:i].max(initial=-1.0):
             ys = np.nonzero(mask[:, max(0, i - 1):i + 2].any(axis=1))[0]
             x = i + 1
             found.append({"x": x, "y0": int(y0 + ys.min()), "y1": int(y0 + ys.max()), "share": round(float(share[i]), 2),
@@ -67,36 +65,32 @@ def boundary_points(gy: np.ndarray, width: int) -> list[tuple[int, int]]:
 
 def fit_lines(points: list[tuple[int, int]], width: int) -> list[dict]:
     """Bis zu MAX_LINES Geraden durch die Randpunkte (RANSAC mit festem Ablauf, daher wiederholbar)."""
-    pts = list(points)
+    arr = np.array(points, dtype=np.float32).reshape(-1, 2)
     lines = []
     for _ in range(MAX_LINES):
-        if len(pts) < 8:
-            break
-        arr = np.array(pts, dtype=np.float32)
-        best = None
         n = len(arr)
+        if n < 8:
+            break
+        best_count, best = 0, None
         for a in range(n):
             for b in range(a + max(3, n // 8), n, max(1, n // 12)):
                 dx = arr[b, 0] - arr[a, 0]
                 if dx < 1:
                     continue
                 slope = (arr[b, 1] - arr[a, 1]) / dx
-                err = np.abs(arr[:, 1] - (arr[a, 1] + slope * (arr[:, 0] - arr[a, 0])))
-                inl = err <= config.CAM_LINE_TOL_PX
-                count = int(inl.sum())
-                if best is None or count > best[0]:
-                    best = (count, inl)
-        if best is None or best[0] < 8:
+                inl = np.abs(arr[:, 1] - (arr[a, 1] + slope * (arr[:, 0] - arr[a, 0]))) <= config.CAM_LINE_TOL_PX
+                if inl.sum() > best_count:
+                    best_count, best = int(inl.sum()), inl
+        if best is None or best_count < 8:
             break
-        inl = best[1]
-        xs, ys = arr[inl, 0], arr[inl, 1]
+        xs, ys = arr[best, 0], arr[best, 1]
         if xs.max() - xs.min() < config.CAM_LINE_MIN_SPAN * width:
             break
         slope, icpt = np.polyfit(xs, ys, 1)
         x0, x1 = float(xs.min()), float(xs.max())
         lines.append({"x0": int(x0), "y0": int(round(icpt + slope * x0)), "x1": int(x1), "y1": int(round(icpt + slope * x1)),
-                      "n": int(inl.sum()), "angle": round(math.degrees(math.atan(float(slope))), 1)})
-        pts = [p for p, keep in zip(pts, inl) if not keep]
+                      "n": best_count, "angle": round(math.degrees(math.atan(float(slope))), 1)})
+        arr = arr[~best]
     return lines
 
 
@@ -119,10 +113,10 @@ class Analyzer:
             gy = np.abs(gray[2:, :] - gray[:-2, :])
             out["vertical_edges"] = vertical_edges(gx, gy, focal, w)
             out["lines"] = fit_lines(boundary_points(gy, w), w)
-        px0, py0, px1, py1 = int(PATCH[0] * w), int(PATCH[1] * h), int(PATCH[2] * w), int(PATCH[3] * h)
+        px0, py0, px1, py1 = (int(f * size) for f, size in zip(PATCH, (w, h, w, h)))
         mean = rgb[py0:py1, px0:px1].reshape(-1, 3).mean(axis=0)
         out["patch"] = {"x0": px0, "y0": py0, "x1": px1, "y1": py1, "rgb": [int(round(float(v))) for v in mean]}
-        small = gray[::4, ::4]
+        small = gray[::4, ::4].copy()        # Kopie: die Ansicht würde das ganze Float-Bild am Leben halten
         motion = 0.0
         if self._prev is not None and self._prev.shape == small.shape:
             motion = float(np.abs(small - self._prev).mean())

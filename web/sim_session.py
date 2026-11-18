@@ -256,6 +256,11 @@ class RobotRelay:
     def link_msg(self) -> dict:
         return {"type": "robot_link", "connected": self.ws is not None}
 
+    def sync_viewers(self):
+        """Dem Roboterprogramm sagen, wie viele Browser zuschauen (ohne Zuschauer kodiert es keine Kamerabilder)."""
+        if self.ws is not None:
+            asyncio.ensure_future(self.ws.send_str(json.dumps({"cmd": "viewers", "count": len(self.session.queues)})))
+
     def handle(self, msg: dict):
         """Befehl aus dem Browser an den Roboter weitergeben."""
         if msg.get("cmd") == "robot_red_mode" and msg.get("value") in config.RED_MODES and self.ws is not None:

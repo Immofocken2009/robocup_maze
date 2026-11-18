@@ -53,6 +53,7 @@ async def websocket(request: web.Request) -> web.WebSocketResponse:
     if relay.last:
         queue.put_nowait(relay.last)
     session.queues.add(queue)
+    relay.sync_viewers()
 
     async def writer():
         while True:
@@ -72,6 +73,7 @@ async def websocket(request: web.Request) -> web.WebSocketResponse:
                     log.warning("Ungültige Nachricht: %s", msg.data)
     finally:
         session.queues.discard(queue)
+        relay.sync_viewers()
         request.app["sockets"].discard(ws)
         writer_task.cancel()
     return ws
@@ -89,15 +91,15 @@ async def robot_link(request: web.Request) -> web.WebSocketResponse:
         await relay.ws.close()
     relay.ws = ws
     relay.session.send_all(relay.link_msg())
+    relay.sync_viewers()
     log.info("Roboterprogramm verbunden")
     try:
         async for msg in ws:
             if msg.type == WSMsgType.TEXT:
-                if msg.data.startswith('{"type": "cam"'):    # Kamerabild: nicht als Zustand merken
-                    relay.session.send_cam(msg.data)
-                    continue
                 relay.last = msg.data
                 relay.session.send_text(msg.data)
+            elif msg.type == WSMsgType.BINARY:      # Kamerabild: flüchtig, wird nicht als Zustand gemerkt
+                relay.session.send_cam(msg.data.decode())
     finally:
         request.app["sockets"].discard(ws)
         if relay.ws is ws:

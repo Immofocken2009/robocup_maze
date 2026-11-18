@@ -15,8 +15,6 @@ import config
 from hardware.run_log import SUFFIX
 
 log = logging.getLogger("vision")
-CHECK_EVERY = 50        # so oft (in Bildern) den freien Platz prüfen
-QUEUE_MAX = 3           # mehr wartende Bilder: weitere werden verworfen (gezählt), die Fahrt hat Vorrang
 
 
 def cam_path(log_path: Path) -> Path:
@@ -39,7 +37,7 @@ class CamRecorder:
         self.dropped = 0
         self.bytes = 0
         self.warning: str | None = None
-        self._queue: queue.Queue = queue.Queue(maxsize=QUEUE_MAX)
+        self._queue: queue.Queue = queue.Queue(maxsize=config.CAM_REC_QUEUE_MAX)
         self._file = open(path, "wb")
         self._thread = threading.Thread(target=self._loop, name="cam_record", daemon=True)
         self._thread.start()
@@ -66,7 +64,7 @@ class CamRecorder:
                                    det=det)
                     self.bytes += len(jpeg)
                     self.frames += 1
-                    if self.frames % CHECK_EVERY == 0 and free_mb(self.path) < config.CAM_REC_MIN_FREE_MB:
+                    if self.frames % config.CAM_REC_CHECK_EVERY == 0 and free_mb(self.path) < config.CAM_REC_MIN_FREE_MB:
                         self.warning = f"Kamera-Aufzeichnung gestoppt: nur noch {free_mb(self.path):.0f} MB frei"
                         log.warning(self.warning)
             except Exception as exc:

@@ -111,6 +111,7 @@ class RobotProgram:
         self.closing = False
         self.fan = Fan()
         self.camera: CameraFeed | None = None       # Kamera vorne (nur Anzeige)
+        self.viewers = 0                            # so viele Browser sehen zu (Meldung der Webseite)
         self.rec = Recorder()       # zeichnet jeden Lauf auf (logs/)
 
     # --- Taster (laufen im gpiozero-Thread) -------------------------------------
@@ -309,12 +310,8 @@ class RobotProgram:
                          "cpu_hot": fan.temp is not None and fan.temp >= config.CPU_HOT_C}
         if fan.warning:
             msg["warnings"].append(fan.warning)
-        if self.camera and self.camera.warning:
-            msg["warnings"].append(self.camera.warning)
-        if self.camera and self.camera.rec_warning:
-            msg["warnings"].append(self.camera.rec_warning)
-        if self.camera and self.camera.recorder and self.camera.recorder.warning:
-            msg["warnings"].append(self.camera.recorder.warning)
+        if self.camera:
+            msg["warnings"] += self.camera.warnings()
         if msg["system"]["cpu_hot"]:
             msg["warnings"].append(f"CPU heiß ({fan.temp:.0f} °C)")
         if r:
@@ -372,15 +369,15 @@ class RobotProgram:
             asyncio.ensure_future(self.ws.send_str(data))
 
     def _send_cam(self, msg: dict):
-        """Im Event-Loop: Kamerabild an die Webseite (nicht als „letzter Zustand“ merken)."""
+        """Im Event-Loop: Kamerabild an die Webseite. Als Binärnachricht, damit die Webseite es nicht als „letzten Zustand“ merkt."""
         if self.ws is not None and not self.ws.closed:
-            asyncio.ensure_future(self.ws.send_str(json.dumps(msg)))
+            asyncio.ensure_future(self.ws.send_bytes(json.dumps(msg).encode()))   # binär = flüchtig (Kamerabild)
 
     def start_camera(self):
         if not config.CAM_ENABLED:
             return
         self.camera = CameraFeed(lambda msg: self.loop.call_soon_threadsafe(self._send_cam, msg),
-                                 wanted=lambda: self.ws is not None and not self.ws.closed)
+                                 wanted=lambda: self.viewers > 0 and self.ws is not None and not self.ws.closed)
         self.camera.start()
 
     async def link(self):
@@ -405,6 +402,9 @@ class RobotProgram:
                 await asyncio.sleep(config.ROBOT_LINK_RETRY_S)
 
     def handle(self, msg: dict):
+        if msg.get("cmd") == "viewers" and isinstance(msg.get("count"), int):
+            self.viewers = msg["count"]
+            return
         if (msg.get("cmd") == "red_mode" and msg.get("value") in config.RED_MODES
                 and self.status in ("start", "finished")):
             self.red_mode = msg["value"]
